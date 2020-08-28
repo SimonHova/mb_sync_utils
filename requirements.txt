@@ -1,2 +1,2 @@
 musicbrainzngs
-ampache
+python3-ampache~=4.2.0-1
