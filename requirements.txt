@@ -1,2 +1,2 @@
 musicbrainzngs
-python3-ampache~=4.2.0-1 @ https://github.com/ampache/python3-ampache.git
+python3-ampache~=4.2.0-1
