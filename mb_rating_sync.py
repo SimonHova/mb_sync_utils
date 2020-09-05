@@ -5,16 +5,6 @@ import sys
 
 import ampache
 
-def ampRating_to_mbRating( _rating ):
-    return int(_rating) * 20
-    
-def mbRating_to_ampRating( _rating ):
-    return int(_rating) / 20
-
-def get_release_group_by_release_id( _id ):
-    print ("Asking MB for release ID " + _id)
-    return musicbrainzngs.get_release_by_id( id = _id, includes=[ 'release-groups' ])['release']['release-group']['id']
-    
 parser = argparse.ArgumentParser(description='Sync ratings from Ampache to MusicBrainz')
 parser.add_argument('MB_ID', type=str)
 parser.add_argument('MB_PW', type=str)
@@ -23,93 +13,137 @@ parser.add_argument('Amp_URL', type=str)
 parser.add_argument('Amp_API', type=str)
 parser.add_argument('Amp_ID', type=str)
 
-args = parser.parse_args()
+# args = parser.parse_args()
+args = parser.parse_args(["SimonHova","2w*CxKzbXBnS",'http://ampache.video.18claypitts.hova.net:5006','2d26f8ffa9d635d664d299f95312408d','simon'])
 
-musicbrainzngs.auth(args.MB_ID, args.MB_PW)
-musicbrainzngs.set_useragent(
-    "mb-ratings-sync",
-    "0.1",
-    "simon@hova.net",
-)
-musicbrainzngs.set_rate_limit(limit_or_interval=1.0, new_requests=1)
+class interface:
+    def __init__(self, args):
+        pass
+    
+    def ampRating_to_mbRating( self, _rating ):
+        return int(_rating) * 20
+    
+    def mbRating_to_ampRating( self, _rating ):
+        return int(_rating) / 20
+    
+    def get_release_group_by_release_id( self, _id ):
+        print ("Asking MB for release ID " + _id)
+        return musicbrainzngs.get_release_by_id( id = _id, includes=[ 'release-groups' ])['release']['release-group']['id']
+    
+    def results(self, type):
+        pass
+    
+    def submit_ratings(self, type, items):
+        pass
 
-# user variables
-ampache_url = args.Amp_URL
-my_api_key  = args.Amp_API
-user        = args.Amp_ID
+class music_item:
+    def __init__(self, interface, type):
+        self._interface=interface
+        self._type=type
+        
+        self._mbid=None
+        self._rating=""
+        
+    @property
+    def type(self):
+        return self._type
+    
+    @property
+    def mbid(self):
+        return self._mbid
+    
+    @mbid.setter
+    def mbid(self, value):
+        self._mbid=value
+    
+    @property
+    def rating(self):
+        return self._rating
+    
+    @rating.setter
+    def rating(self, value):
+        self._rating=value
 
-# processed details
-encrypted_key = ampache.encrypt_string(my_api_key, user)
-ampache_api   = ampache.handshake(ampache_url, encrypted_key)
+class int_amp(interface):
+    def __init__(self, args):
+        self._url = args.Amp_URL
+        self._api = args.Amp_API
+        self._id = args.Amp_ID
+        
+        self._encrypted_key = ampache.encrypt_string(self._api, self._id)
+        self._ampache_api   = ampache.handshake(self._url, self._encrypted_key)
+        
+        self._rules = [['myrating',4,1]]
+    
+    def results(self, type):
+        _amp_results = ampache.advanced_search(self._url, self._ampache_api, self._rules, object_type=type)
+        
+        __results = []
+        i = music_item(self,type)
+        
+        for _item in _amp_results:
+            for child in _item:
+                if child.tag=="mbid":
+                    if child.text != None:
+                        if type=="album":
+                            i.mbid=self.get_release_group_by_release_id(child.text)
+                        else:
+                            i.mbid=child.text
+                elif child.tag=="rating":
+                    i.rating=child.text
+            
+            if i._mbid != None:
+                __results.append(i)
+            
+            i = music_item(self,type)
+        
+        print("Got " + str(len(__results)) + " " + type + "s from Ampache")
+        return __results
+    
+    def submit_ratings(self,type,items):
+        pass
 
-rules = [['myrating',4,1]]
+class int_mb(interface):
+    def __init__(self, args):
+        self._id = args.MB_ID
+        self._pw = args.MB_PW
+        
+        musicbrainzngs.auth(args.MB_ID, args.MB_PW)
+        musicbrainzngs.set_useragent(
+            "mb-ratings-sync",
+            "0.1",
+            "simon@hova.net",
+        )
+        musicbrainzngs.set_rate_limit(limit_or_interval=1.0, new_requests=1)
+    
+    def _format_list(self,items):
+        # take a list
+        # return a dict
+        
+        _items={}
+        for item in items:
+            _items.update( { item._mbid : self.ampRating_to_mbRating( item._rating ) } )
+        return _items
+    
+    def submit_ratings(self,type,items):
+        if type == "artist":
+            print("Submitting ratings for " + str(len(items)) + " artists to MusicBrainz")
+            musicbrainzngs.submit_ratings(artist_ratings=self._format_list(items))
+        elif type == "album":
+            print("Submitting ratings for " + str(len(items)) + " albums to MusicBrainz")
+            musicbrainzngs.submit_ratings(release_group_ratings=self._format_list(items))
+        elif type == "song":
+            print("Submitting ratings for " + str(len(items)) + " songs to MusicBrainz")
+            musicbrainzngs.submit_ratings(recording_ratings=self._format_list(items))
+
+amp = int_amp(args)
+mb = int_mb(args)
 
 # First, we will do the artists
-amp_results = ampache.advanced_search(ampache_url, ampache_api, rules, object_type='artist')
-
-amp_artists={}
-_mbid=None
-_rating=""
-
-for artist in amp_results:
-     for child in artist:
-             if child.tag=="mbid":
-                     _mbid=child.text
-             elif child.tag=="rating":
-                     _rating=child.text
-     if _mbid != None:
-        amp_artists.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-        print("Got " + str(len(amp_artists)) + " artists")
-        
-        _mbid=""
-        _rating=""
-
-print("Submitting ratings for " + str(len(amp_artists)) + " artists")
-musicbrainzngs.submit_ratings(artist_ratings=amp_artists)
+mb.submit_ratings("artist",amp.results("artist"))
 
 # Then, the release groups
-amp_results = ampache.advanced_search(ampache_url, ampache_api, rules, object_type='album')
-
-amp_albums={}
-_mbid=None
-_rating=""
-
-for album in amp_results:
-     for child in album:
-             if child.tag=="mbid":
-                     _mbid=child.text
-             elif child.tag=="rating":
-                     _rating=child.text
-     if _mbid != None:
-        amp_albums.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
-        print("Got " + str(len(amp_albums)) + " albums")
-        
-        _mbid = None
-        _rating = ""
-
-print("Submitting ratings for " + str(len(amp_albums)) + " albums")
-musicbrainzngs.submit_ratings(release_group_ratings=amp_albums)
+mb.submit_ratings("album",amp.results("album"))
 
 # Last, the songs
-amp_results = ampache.advanced_search(ampache_url, ampache_api, rules, object_type='song')
-
-amp_songs={}
-_mbid=None
-_rating=""
-
-for song in amp_results:
-     for child in song:
-             if child.tag=="mbid":
-                     _mbid=child.text
-             elif child.tag=="rating":
-                     _rating=child.text
-     if _mbid!=None:
-        amp_songs.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-        
-        print("Got " + str(len(amp_songs)) + " songs")
-        
-        _mbid=None
-        _rating=""
-
-print("Submitting ratings for " + str(len(amp_songs)) + " songs")
-musicbrainzngs.submit_ratings(recording_ratings=amp_songs)
+mb.submit_ratings("song",amp.results("song"))
