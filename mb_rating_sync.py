@@ -13,8 +13,7 @@ parser.add_argument('Amp_URL', type=str)
 parser.add_argument('Amp_API', type=str)
 parser.add_argument('Amp_ID', type=str)
 
-# args = parser.parse_args()
-args = parser.parse_args(["SimonHova","2w*CxKzbXBnS",'http://ampache.video.18claypitts.hova.net:5006','2d26f8ffa9d635d664d299f95312408d','simon'])
+args = parser.parse_args()
 
 class interface:
     def __init__(self, args):
@@ -25,10 +24,6 @@ class interface:
     
     def mbRating_to_ampRating( self, _rating ):
         return int(_rating) / 20
-    
-    def get_release_group_by_release_id( self, _id ):
-        print ("Asking MB for release ID " + _id)
-        return musicbrainzngs.get_release_by_id( id = _id, includes=[ 'release-groups' ])['release']['release-group']['id']
     
     def results(self, type):
         pass
@@ -73,10 +68,11 @@ class int_amp(interface):
         self._encrypted_key = ampache.encrypt_string(self._api, self._id)
         self._ampache_api   = ampache.handshake(self._url, self._encrypted_key)
         
-        self._rules = [['myrating',4,1]]
+    def get_id_from_mbid(self, item):
+        _amp_results = ampache.advanced_search(self._url, self._ampache_api, [['myrating',4,1]], object_type=type)
     
     def results(self, type):
-        _amp_results = ampache.advanced_search(self._url, self._ampache_api, self._rules, object_type=type)
+        _amp_results = ampache.advanced_search(self._url, self._ampache_api, [['myrating',4,1]], object_type=type)
         
         __results = []
         i = music_item(self,type)
@@ -122,8 +118,29 @@ class int_mb(interface):
         
         _items={}
         for item in items:
-            _items.update( { item._mbid : self.ampRating_to_mbRating( item._rating ) } )
+            _items.update( { item.mbid : self.ampRating_to_mbRating( item.rating ) } )
         return _items
+    
+    def get_release_group_by_release_id( self, _id ):
+        print ("Asking MB for release ID " + _id)
+        return musicbrainzngs.get_release_by_id( id = _id, includes=[ 'release-groups' ])['release']['release-group']['id']
+    
+    def results(self, type, item):
+        if type == "artist":
+            print("Getting ratings for artist " + str( item.mbid ) + " from MusicBrainz")
+            musicbrainzngs.get_artist_by_id(id=item.mbid,includes=['user-ratings'])
+        elif type == "album":
+            print("Getting ratings for album " + str( item.mbid ) + " from MusicBrainz")
+            musicbrainzngs.get_release_group_by_id(id=item.mbid,includes=['user-ratings'])
+        elif type == "song":
+            print("Getting ratings for song " + str( item.mbid ) + " from MusicBrainz")
+            musicbrainzngs.get_recording_group_by_id(id=item.mbid,includes=['user-ratings'])
+        
+        for child in _item:
+            if child.tag=="rating":
+                item.rating=child.text
+        
+        return item
     
     def submit_ratings(self,type,items):
         if type == "artist":
@@ -147,3 +164,5 @@ mb.submit_ratings("album",amp.results("album"))
 
 # Last, the songs
 mb.submit_ratings("song",amp.results("song"))
+
+
