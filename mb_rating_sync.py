@@ -6,9 +6,12 @@ import sys
 
 import ampache
 
+from bs4 import BeautifulSoup
+from requests import get as r_get
+
 def ampRating_to_mbRating( _rating ):
     return int(_rating) * 20
-    
+
 def mbRating_to_ampRating( _rating ):
     return int(_rating) / 20
 
@@ -16,9 +19,19 @@ def get_release_group_by_release_id( _id ):
     print ("Asking MB for release ID " + _id)
     return musicbrainzngs.get_release_by_id( id = _id, includes=[ 'release-groups' ])['release']['release-group']['id']
 
-parser = argparse.ArgumentParser(description='Sync ratings from Ampache to MusicBrainz')
+def get_releases_by_release_group_id( _id ):
+    print (("Asking MB for release group ID " + _id))
+    _release_ids = []
+    
+    for _release in musicbrainzngs.get_release_group_by_id( id = _id, includes=[ 'releases' ])['release-group']['release-list']:
+        _release_ids.append(_release['id'])
+    return _release_ids
+
+parser = argparse.ArgumentParser(description='Sync ratings between Ampache and MusicBrainz')
 
 parser.add_argument('--config', type=str, help='location of a config file')
+
+parser.add_argument('--sync_from',choices=['Ampache','MusicBrainz'], default='Ampache', help='Which data source should we sync ratings from')
 
 parser.add_argument('--MB_ID', type=str, help='The ID used for MusicBrainz')
 parser.add_argument('--MB_PW', type=str, help='The PW used for MusicBrainz')
@@ -60,71 +73,196 @@ Amp_key       = ampache.handshake(args.Amp_URL, encrypted_key)
 rules = [['myrating',4,1]]
 
 # First, we will do the artists
+mb_artists = {}
+amp_artists = {}
+_mbid = ""
+_rating = ""
+
+mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/artist'.format(args.MB_ID)
+next_mb_ratings_link = ''
+while mb_ratings_link:
+    r = r_get(mb_ratings_link)
+    soup = BeautifulSoup(r.text, 'html.parser')
+    for list in soup.find_all('li'):
+        for link in list.find_all('a'):
+            if "/artist/" in link.get('href'):
+                _mbid = (link.get('href')[8:])
+            elif link.contents[0] == 'Next':
+                next_mb_ratings_link=link.get('href')
+        for span in list.find_all('span'):
+            for subspan in span.find_all('span'):
+                if subspan.get('class')[0] == "current-rating":
+                    _rating = subspan.contents[0]
+        mb_artists.update( { _mbid : _rating } )
+        print("Got " + str(len(mb_artists)) + " artists")
+        _mbid=""
+        _rating=""
+    if mb_ratings_link != next_mb_ratings_link:
+        mb_ratings_link = next_mb_ratings_link
+    else:
+        mb_ratings_link = ''
+
 amp_results = ampache.advanced_search(args.Amp_URL, Amp_key, rules, object_type='artist')
-
-amp_artists={}
-_mbid=""
-_rating=""
-
 for artist in amp_results:
-     for child in artist:
-             if child.tag=="mbid":
-                     _mbid=child.text
-             elif child.tag=="rating":
-                     _rating=child.text
-     if _mbid != "":
+    if artist.tag == 'artist':
+        _mbid   = artist.find('mbid').text
+        _rating = artist.find('rating').text
+    if _mbid != "":
         amp_artists.update( { _mbid : ampRating_to_mbRating( _rating ) } )
         print("Got " + str(len(amp_artists)) + " artists")
         
         _mbid=""
         _rating=""
 
-print("Submitting ratings for " + str(len(amp_artists)) + " artists")
-musicbrainzngs.submit_ratings(artist_ratings=amp_artists)
+if args.sync_from == 'Ampache':
+    print("Submitting ratings for " + str(len(amp_artists)) + " artists")
+    musicbrainzngs.submit_ratings(artist_ratings=amp_artists)
+else:
+    for artist,rating in mb_artists.items():
+        if artist != "":  # the first result seems to be null!
+            amp_artist = ampache.advanced_search(args.Amp_URL, Amp_key, [['mbid',4,artist]], object_type='artist')
+            if len(amp_artist) == 0: # no matches!
+                print('Skipping artist; no matches!')
+            else:
+                amp_rating = amp_artist[1].find('rating')
+                if amp_rating == None:
+                    print('Artist had no rating. Setting rating {} for artist MBID {}'.format(rating,artist))
+                    ampache.rate(args.Amp_URL, Amp_key, object_id=int(amp_artist[1].attrib['id']), rating=int(rating), object_type='artist')
+                else:
+                    if rating == amp_rating.text:
+                        print('Ratings match for artist MBID {}'.format(artist))
+                    else:
+                        print('Ampache had rating of {}. Setting rating {} for artist MBID {}'.format(amp_rating.text,rating,artist))
+                        amp_rated = ampache.rate(args.Amp_URL, Amp_key, object_id=int(amp_artist[1].attrib['id']), rating=int(rating), object_type='artist')
+                        # todo: check amp_rated for error
 
 # Then, the release groups
 amp_results = ampache.advanced_search(args.Amp_URL, Amp_key, rules, object_type='album')
 
 amp_albums={}
+mb_albums={}
 _mbid=None
 _rating=""
+
+mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/release_group'.format(args.MB_ID)
+next_mb_ratings_link = ''
+while mb_ratings_link:
+    r = r_get(mb_ratings_link)
+    soup = BeautifulSoup(r.text, 'html.parser')
+    for list in soup.find_all('li'):
+        for link in list.find_all('a'):
+            if "/release-group/" in link.get('href'):
+                _mbid = (link.get('href')[15:])
+            elif link.contents[0] == 'Next':
+                next_mb_ratings_link=link.get('href')
+        for span in list.find_all('span'):
+            for subspan in span.find_all('span'):
+                if subspan.get('class')[0] == "current-rating":
+                    _rating = subspan.contents[0]
+        mb_albums.update( { _mbid : _rating } )
+        print("Got " + str(len(mb_albums)) + " albums")
+        _mbid=""
+        _rating=""
+    if mb_ratings_link != next_mb_ratings_link:
+        mb_ratings_link = next_mb_ratings_link
+    else:
+        mb_ratings_link = ''
 
 for album in amp_results:
-     for child in album:
-             if child.tag=="mbid":
-                     _mbid=child.text
-             elif child.tag=="rating":
-                     _rating=child.text
-     if _mbid != None:
-        amp_albums.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
-        print("Got " + str(len(amp_albums)) + " albums")
-        
-        _mbid = None
-        _rating = ""
+    if album.tag == 'album':
+        _mbid   = album.find('mbid').text
+        _rating = album.find('rating').text
+        if _mbid != None:
+            amp_albums.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
+            print("Got " + str(len(amp_albums)) + " albums")
+            
+            _mbid = None
+            _rating = ""
 
-print("Submitting ratings for " + str(len(amp_albums)) + " albums")
-musicbrainzngs.submit_ratings(release_group_ratings=amp_albums)
+if args.sync_from == 'Ampache':
+    print("Submitting ratings for " + str(len(amp_albums)) + " albums")
+    musicbrainzngs.submit_ratings(release_group_ratings=amp_albums)
+else:
+    for album,rating in mb_albums.items():
+        if album is not None and album != "":  # the first result seems to be null!
+            for __album in get_releases_by_release_group_id( album ):
+                print('Looking up release MBID {}'.format(__album))
+                amp_album = ampache.advanced_search(args.Amp_URL, Amp_key, [['mbid',4,__album]], object_type='album')
+                if len(amp_album) == 0: # no matches!
+                    print('Skipping album; no matches!')
+                else:
+                    amp_rating = amp_album[1].find('rating')
+                    if amp_rating.text is None:
+                        print('album had no rating. Setting rating {} for album MBID {}'.format(rating,__album))
+                        amp_rated = ampache.rate(args.Amp_URL, Amp_key, object_id=int(amp_album[1].attrib['id']), rating=int(rating), object_type='album')
+                        # todo: check amp_rated for error
+                    else:
+                        if rating == amp_rating.text:
+                            print('Ratings match for album MBID {}'.format(__album))
+                        else:
+                            print('Ampache had rating of {}. Setting rating {} for album MBID {}'.format(amp_rating.text,rating,__album))
+                            amp_rated = ampache.rate(args.Amp_URL, Amp_key, object_id=int(amp_album[1].attrib['id']), rating=int(rating), object_type='album')
+                            # todo: check amp_rated for error
 
 # Last, the songs
-amp_results = ampache.advanced_search(args.Amp_URL, Amp_key, rules, object_type='song')
+mb_songs = {}
+amp_songs = {}
+_mbid = ""
+_rating = ""
 
-amp_songs={}
-_mbid=None
-_rating=""
-
-for song in amp_results:
-     for child in song:
-             if child.tag=="mbid":
-                     _mbid=child.text
-             elif child.tag=="rating":
-                     _rating=child.text
-     if _mbid!=None:
-        amp_songs.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-        
-        print("Got " + str(len(amp_songs)) + " songs")
-        
-        _mbid=None
+mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/recording'.format(args.MB_ID)
+next_mb_ratings_link = ''
+while mb_ratings_link:
+    r = r_get(mb_ratings_link)
+    soup = BeautifulSoup(r.text, 'html.parser')
+    for list in soup.find_all('li'):
+        for link in list.find_all('a'):
+            if "/recording/" in link.get('href'):
+                _mbid = (link.get('href')[11:])
+            elif link.contents[0] == 'Next':
+                next_mb_ratings_link=link.get('href')
+        for span in list.find_all('span'):
+            for subspan in span.find_all('span'):
+                if subspan.get('class')[0] == "current-rating":
+                    _rating = subspan.contents[0]
+        mb_songs.update( { _mbid : _rating } )
+        print("Got " + str(len(mb_songs)) + " songs")
+        _mbid=""
         _rating=""
+    if mb_ratings_link != next_mb_ratings_link:
+        mb_ratings_link = next_mb_ratings_link
+    else:
+        mb_ratings_link = ''
 
-print("Submitting ratings for " + str(len(amp_songs)) + " songs")
-musicbrainzngs.submit_ratings(recording_ratings=amp_songs)
+amp_results = ampache.advanced_search(args.Amp_URL, Amp_key, rules, object_type='song')
+for song in amp_results:
+    if song.tag == 'song':
+        _mbid   = song.find('mbid').text
+        _rating = song.find('rating').text
+        if _mbid != None:
+            amp_songs.update( { _mbid : ampRating_to_mbRating( _rating ) } )
+            print("Got " + str(len(amp_songs)) + " songs")
+            _mbid=None
+            _rating=""
+
+if args.sync_from == 'Ampache':
+    print("Submitting ratings for " + str(len(amp_songs)) + " songs")
+    musicbrainzngs.submit_ratings(artist_ratings=amp_songs)
+else:
+    for song,rating in mb_songs.items():
+        if song != "":  # the first result seems to be null!
+            amp_song = ampache.advanced_search(args.Amp_URL, Amp_key, [['mbid',4,song]], object_type='song')
+            if len(amp_song) == 0: # no matches!
+                print('Skipping song; no matches!')
+            else:
+                amp_rating = amp_song[1].find('rating')
+                if amp_rating == None:
+                    print('song had no rating. Setting rating {} for song MBID {}'.format(rating,song))
+                    ampache.rate(args.Amp_URL, Amp_key, object_id=int(amp_song[1].attrib['id']), rating=int(rating), object_type='song')
+                else:
+                    if rating == amp_rating.text:
+                        print('Ratings match for song MBID {}'.format(song))
+                    else:
+                        print('Ampache had rating of {}. Setting rating {} for song MBID {}'.format(amp_rating.text,rating,song))
+                        amp_rated = ampache.rate(args.Amp_URL, Amp_key, object_id=int(amp_song[1].attrib['id']), rating=int(rating), object_type='song')
+                        # todo: check amp_rated for error
