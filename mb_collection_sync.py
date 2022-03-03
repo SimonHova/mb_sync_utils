@@ -48,16 +48,18 @@ musicbrainzngs.set_useragent(
 )
 musicbrainzngs.set_rate_limit(limit_or_interval=1.0, new_requests=1)
 
-# processed details
-encrypted_key = ampache.encrypt_string(args.Amp_API, args.Amp_ID)
-Amp_key       = ampache.handshake(args.Amp_URL, encrypted_key)
+# connect to the server
+ampacheConnection = ampache.API()
 
+# processed details
+passphrase = ampacheConnection.encrypt_string(args.Amp_API, args.Amp_ID)
+Amp_key = ampacheConnection.handshake(args.Amp_URL, passphrase)
 
 _offset = 0
 
 while True:
     # Collect the releases from Ampache
-    amp_results = ampache.albums(args.Amp_URL, Amp_key, offset=_offset * 5000)
+    amp_results = ampacheConnection.albums(offset=_offset * 5000)
     
     if len(amp_results) <= 1: break
 
