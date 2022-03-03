@@ -261,14 +261,15 @@ while True:
                         if subspan.get('class')[0] == "current-rating":
                             _rating = subspan.contents[0]
                 mb_songs.update( { _mbid : _rating } )
-                print("Got " + str(len(mb_songs)) + " songs")
+                # print("Got " + str(len(mb_songs)) + " songs")
                 _mbid=""
                 _rating=""
             if mb_ratings_link != next_mb_ratings_link:
                 mb_ratings_link = next_mb_ratings_link
             else:
                 mb_ratings_link = ''
-
+        
+        print("Got " + str(len(mb_songs)) + " songs")
         for song,rating in mb_songs.items():
             if song != "":  # the first result seems to be null!
                 amp_song = ampacheConnection.advanced_search([['mbid',4,song]], object_type='song')
