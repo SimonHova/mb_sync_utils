@@ -215,7 +215,7 @@ else:
                                 amp_rated = ampacheConnection.rate(object_id=int(amp_album[1].attrib['id']), rating=int(rating), object_type='album')
                                 # todo: check amp_rated for error
 
-Last, the songs
+# Last, the songs
 _offset = 0
 
 while True:
