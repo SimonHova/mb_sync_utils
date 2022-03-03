@@ -52,23 +52,28 @@ musicbrainzngs.set_rate_limit(limit_or_interval=1.0, new_requests=1)
 encrypted_key = ampache.encrypt_string(args.Amp_API, args.Amp_ID)
 Amp_key       = ampache.handshake(args.Amp_URL, encrypted_key)
 
-rules = [['myrating',4,1]]
 
-# Collect the releases from Ampache
-amp_results = ampache.advanced_search(args.Amp_URL, Amp_key, rules, object_type='album')
+_offset = 0
 
-amp_albums=[]
-_mbid=None
+while True:
+    # Collect the releases from Ampache
+    amp_results = ampache.albums(args.Amp_URL, Amp_key, offset=_offset * 5000)
+    
+    if len(amp_results) <= 1: break
 
-for album in amp_results:
-    if album.tag == 'album':
-        _mbid   = album.find('mbid').text
-        if _mbid != None:
-            amp_albums.append( _mbid )
-            print("Got " + str(len(amp_albums)) + " albums")
-            
-            _mbid = None
+    amp_albums=[]
+    _mbid=None
 
-# Push them to MusicBrainz
-for chunk in [ amp_albums [i:i + 200] for i in range(0, len(amp_albums), 200) ]:
-    musicbrainzngs.add_releases_to_collection(args.MB_Collection, releases=chunk)
+    for album in amp_results:
+        if album.tag == 'album':
+            _mbid   = album.find('mbid').text
+            if _mbid != None:
+                amp_albums.append( _mbid )
+                print("Got " + str(len(amp_albums)) + " albums")
+                
+                _mbid = None
+
+    # Push them to MusicBrainz
+    for chunk in [ amp_albums [i:i + 200] for i in range(0, len(amp_albums), 200) ]:
+        musicbrainzngs.add_releases_to_collection(args.MB_Collection, releases=chunk)
+    _offset += 1
