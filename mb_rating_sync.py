@@ -290,5 +290,5 @@ while True:
                                 print('Ampache had rating of {}. Setting rating {} for song MBID {}'.format(amp_rating.text,rating,song))
                                 amp_rated = ampacheConnection.rate(object_id=int(amp_song[1].attrib['id']), rating=int(rating), object_type='song')
                                 print('Ratings results were {}.'.format(amp_rated).text)
-                                todo: check amp_rated for error
+                                # todo: check amp_rated for error
     _offset += 1
