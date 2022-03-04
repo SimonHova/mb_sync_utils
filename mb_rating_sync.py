@@ -113,7 +113,7 @@ else:
                     if subspan.get('class')[0] == "current-rating":
                         _rating = subspan.contents[0]
             mb_artists.update( { _mbid : _rating } )
-            print("Got " + str(len(mb_artists)) + " artists")
+            # print("Got " + str(len(mb_artists)) + " artists")
             _mbid=""
             _rating=""
         if mb_ratings_link != next_mb_ratings_link:
@@ -224,7 +224,7 @@ while True:
     _mbid = ""
     _rating = ""
 
-    amp_results = ampacheConnection.advanced_search(rules, object_type='song', offset=_offset * 5000)
+    amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=5000, offset=_offset * 5000)
     
     if len(amp_results) <= 1: break
     
@@ -234,7 +234,7 @@ while True:
             _rating = song.find('rating').text
             if _mbid != None:
                 amp_songs.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-                print("Got " + str(len(amp_songs)) + " songs")
+                # print("Got " + str(len(amp_songs)) + " songs")
                 _mbid=None
                 _rating=""
             else:
