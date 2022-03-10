@@ -289,7 +289,7 @@ while True:
                                 print('Ratings match for song MBID {}'.format(song))
                             else:
                                 print('Ampache had rating of {}. Setting rating {} for song MBID {}'.format(amp_rating.text,rating,song))
-                                amp_rated = ampacheConnection.rate(object_id=int(amp_song[1].attrib['id']), rating=int(rating), object_type='song')
-                                print('Ratings results were {}.'.format(amp_rated).text)
-                                # todo: check amp_rated for error
+                                if int(ampacheConnection.rate(object_id=int(amp_song[1].attrib['id']), rating=int(rating), object_type='song')[0].attrib['code']) != 1:
+                                    print('Broke at song MBID {}'.format(song))
+                                    break
     _offset += 1
