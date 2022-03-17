@@ -43,7 +43,7 @@ if not args.Amp_API:
 if not args.Amp_ID:
     args.Amp_ID = config['ampache']['user']
 
-if parser.verbose:
+if args.verbose:
     logging.basicConfig(level=logging.DEBUG)
 
 musicbrainzngs.auth(args.MB_ID, args.MB_PW)
