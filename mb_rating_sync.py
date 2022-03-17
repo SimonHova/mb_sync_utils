@@ -32,7 +32,7 @@ parser = argparse.ArgumentParser(description='Sync ratings between Ampache and M
 
 parser.add_argument('--config', type=str, help='location of a config file',default=None)
 
-parser.add_argument('--verbose', type=bool, default=False, help='Print extra information for debugging.')
+parser.add_argument('--verbose', action="store_true", default=False, help='Print extra information for debugging.')
 
 parser.add_argument('--sync_from',choices=['Ampache','MusicBrainz'], default='Ampache', help='Which data source should we sync ratings from')
 
