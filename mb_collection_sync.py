@@ -1,5 +1,6 @@
 from configparser import ConfigParser
 import argparse
+import logging
 
 import musicbrainzngs
 import sys
@@ -9,6 +10,8 @@ import ampache
 parser = argparse.ArgumentParser(description='Sync collections between Ampache and MusicBrainz')
 
 parser.add_argument('--config', type=str, help='location of a config file',default=None)
+
+parser.add_argument('--verbose', type=bool, default=False, help='Print extra information for debugging.')
 
 parser.add_argument('--sync_from',choices=['Ampache','MusicBrainz'], default='Ampache', help='Which data source should we sync ratings from')
 
@@ -39,6 +42,9 @@ if not args.Amp_API:
     args.Amp_API = config['ampache']['api']
 if not args.Amp_ID:
     args.Amp_ID = config['ampache']['user']
+
+if parser.verbose:
+    logging.basicConfig(level=logging.DEBUG)
 
 musicbrainzngs.auth(args.MB_ID, args.MB_PW)
 musicbrainzngs.set_useragent(
@@ -71,7 +77,7 @@ while True:
             _mbid   = album.find('mbid').text
             if _mbid != None:
                 amp_albums.append( _mbid )
-                print("Got " + str(len(amp_albums)) + " albums")
+                logging.info("Got " + str(len(amp_albums)) + " albums")
                 
                 _mbid = None
 
