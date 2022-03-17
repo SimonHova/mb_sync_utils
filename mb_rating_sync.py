@@ -1,5 +1,6 @@
 from configparser import ConfigParser
 import argparse
+import logging
 
 import musicbrainzngs
 import sys
