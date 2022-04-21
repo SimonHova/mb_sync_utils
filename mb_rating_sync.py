@@ -1,4 +1,4 @@
-from configparser import ConfigParser
+from configparser import RawConfigParser
 import argparse
 import logging
 
@@ -17,16 +17,19 @@ def mbRating_to_ampRating( _rating ):
     return int(_rating) / 20
 
 def get_release_group_by_release_id( _id ):
-    print ("Asking MB for release ID " + _id)
+    logging.debug("Asking MB for release ID " + _id)
     return musicbrainzngs.get_release_by_id( id = _id, includes=[ 'release-groups' ])['release']['release-group']['id']
 
 def get_releases_by_release_group_id( _id ):
-    print (("Asking MB for release group ID " + _id))
+    logging.debug(("Asking MB for release group ID " + _id))
     _release_ids = []
     
     for _release in musicbrainzngs.get_release_group_by_id( id = _id, includes=[ 'releases' ])['release-group']['release-list']:
         _release_ids.append(_release['id'])
     return _release_ids
+
+# Set the default logging level.
+logging.basicConfig(level=logging.INFO)
 
 parser = argparse.ArgumentParser(description='Sync ratings between Ampache and MusicBrainz')
 
@@ -45,7 +48,7 @@ parser.add_argument('--Amp_ID', type=str, help='The ID used for your local Ampac
 
 args = parser.parse_args()
 
-config = ConfigParser(allow_no_value=True)
+config = RawConfigParser(allow_no_value=True)
 
 if args.config:
     config.read(args.config)
@@ -94,7 +97,7 @@ for artist in amp_results:
         _rating = artist.find('rating').text
     if _mbid != "":
         amp_artists.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-        logging.info("Got " + str(len(amp_artists)) + " artists")
+        logging.debug("Got " + str(len(amp_artists)) + " artists")
         
         _mbid=""
         _rating=""
@@ -163,7 +166,7 @@ for album in amp_results:
         _rating = album.find('rating').text
         if _mbid != None:
             amp_albums.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
-            logging.info("Got " + str(len(amp_albums)) + " albums")
+            logging.debug("Got " + str(len(amp_albums)) + " albums")
             
             _mbid = None
             _rating = ""
