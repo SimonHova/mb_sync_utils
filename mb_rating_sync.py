@@ -89,6 +89,7 @@ mb_artists = {}
 amp_artists = {}
 _artists = {}
 _mbid = ""
+_rating=""
 
 amp_results = ampacheConnection.advanced_search(rules, object_type='artist')
 for artist in amp_results:
@@ -129,7 +130,7 @@ else:
             mb_ratings_link = next_mb_ratings_link
         else:
             mb_ratings_link = ''
-
+    
     for artist,rating in mb_artists.items():
         if artist != "":  # the first result seems to be null!
             amp_artist = ampacheConnection.advanced_search([['mbid',4,artist]], object_type='artist')
@@ -198,9 +199,9 @@ else:
             mb_ratings_link = next_mb_ratings_link
         else:
             mb_ratings_link = ''
-
+    
     for album,rating in mb_albums.items():
-        if album is not None and album != "":  # the first result seems to be null!
+        if album is not None and album != "":  # if the first result is not null!
             for __album in get_releases_by_release_group_id( album ):
                 logging.info('Looking up release MBID {}'.format(__album))
                 amp_album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
@@ -248,7 +249,7 @@ while True:
                 _rating=""
             else:
                 logging.info('Song ID not found for song {} by {}'.format(song.find('title'),song.find('artist')))
-
+    
     if args.sync_from == 'Ampache':
         logging.info("Submitting ratings for " + str(len(amp_songs)) + " songs")
         for chunk in [ dict(list(amp_songs.items()) [i:i + 1000]) for i in range(0, len(amp_songs), 1000) ]:
