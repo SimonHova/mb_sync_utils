@@ -91,13 +91,17 @@ if args.sync_from == 'Ampache':
             musicbrainzngs.add_releases_to_collection(args.MB_collection, releases=chunk)
         _offset += 1
 else:
+    mb_albums  = []
+    amp_albums = []
+    
     while True:
         # Collect the releases from MusicBrainz
-        mb_results = musicbrainzngs.get_releases_in_collection(args.MB_collection)['collection']['release-list']
+        mb_results = musicbrainzngs.get_releases_in_collection(collection=args.MB_collection, limit=_limit, offset=_offset)['collection']['release-list']
+        _limit = len(mb_results)
         
-        for release in mb_results['collection']['release-list']:
-            mb_albums = mb_results['id']
+        for mb_album in mb_results:
+            mb_albums.append(mb_album['id'])
         
         for mb_album in mb_albums:
-            ampacheConnection.advanced_search(rules=['mbid_album',4,mb_album])
+            amp_albums.append(ampacheConnection.advanced_search([['mbid_album',4,mb_album]]))
         
