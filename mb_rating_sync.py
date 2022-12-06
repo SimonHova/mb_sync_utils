@@ -227,6 +227,7 @@ else:
 
 # Last, the songs
 _offset = 0
+_limit = 5000
 
 while True:
     mb_songs = {}
@@ -234,7 +235,7 @@ while True:
     _mbid = ""
     _rating = ""
 
-    amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=5000, offset=_offset * 5000)
+    amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=_limit, offset=_offset * _limit)
     
     if len(amp_results) <= 1: break
     

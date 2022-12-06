@@ -96,7 +96,7 @@ else:
     
     while True:
         # Collect the releases from MusicBrainz
-        mb_results = musicbrainzngs.get_releases_in_collection(collection=args.MB_collection, limit=_limit, offset=_offset)['collection']['release-list']
+        mb_results = musicbrainzngs.get_releases_in_collection(collection=args.MB_collection, limit=_limit, offset=_offset * _limit)['collection']['release-list']
         logging.debug("Grabbed " + str(len(mb_results)) + " albums from MB.")
         _limit = len(mb_results)
         
