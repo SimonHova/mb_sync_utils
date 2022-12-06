@@ -97,11 +97,12 @@ else:
     while True:
         # Collect the releases from MusicBrainz
         mb_results = musicbrainzngs.get_releases_in_collection(collection=args.MB_collection, limit=_limit, offset=_offset)['collection']['release-list']
+        logging.debug("Grabbed " + str(len(mb_results)) + " albums from MB.")
         _limit = len(mb_results)
         
         for mb_album in mb_results:
-            mb_albums.append(mb_album['id'])
-        
-        for mb_album in mb_albums:
-            amp_albums.append(ampacheConnection.advanced_search([['mbid_album',4,mb_album]]))
-        
+            if len(ampacheConnection.advanced_search([['mbid_album',4,mb_album['id']]])) == 0:
+                logging.debug("Removing release " + str(mb_album['id']) + ".")
+                musicbrainzngs.remove_releases_from_collection(collection=args.MB_collection,releases=[mb_album['id']])
+        _offset += 1
+        logging.debug("Loop number " + str(_offset) + ".")
