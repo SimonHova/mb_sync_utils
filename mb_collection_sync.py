@@ -16,7 +16,7 @@ parser.add_argument('--config', type=str, help='location of a config file',defau
 
 parser.add_argument('--verbose', action="store_true", default=False, help='Print extra information for debugging.')
 
-parser.add_argument('--sync_from',choices=['Ampache','MusicBrainz'], default='Ampache', help='Which data source should we sync ratings from')
+parser.add_argument('--sync_from',choices=['Ampache','MusicBrainz'], default='Ampache', help='Which data source should we sync from')
 
 parser.add_argument('--MB_ID', type=str, help='The ID used for MusicBrainz')
 parser.add_argument('--MB_PW', type=str, help='The PW used for MusicBrainz')
