@@ -112,5 +112,9 @@ else:
                 musicbrainzngs.remove_releases_from_collection(collection=args.MB_collection,releases=[mb_album['id']])
             else:
                 logging.info("Release " + str(mb_album['id'])  +" found.")
+        
+        if _limit <= 10:
+            logging.info("Reset limit back to 100.")
+            _limit = 100
         _offset += 1
         logging.info(" Loop number " + str(_offset) + ".")
