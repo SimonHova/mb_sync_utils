@@ -50,7 +50,10 @@ if not args.Amp_ID:
     args.Amp_ID = config['ampache']['user']
 
 if args.verbose:
+    logging.info("Switching to debug mode.")
     logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.info("Not switching to debug mode.")
 
 musicbrainzngs.auth(args.MB_ID, args.MB_PW)
 musicbrainzngs.set_useragent(
@@ -69,6 +72,7 @@ Amp_key = ampacheConnection.handshake(args.Amp_URL, passphrase)
 
 _offset = args.offset
 _limit = args.limit
+_progress = 0
 
 if args.sync_from == 'Ampache':
     while True:
@@ -104,7 +108,10 @@ else:
         # Collect the releases from MusicBrainz
         mb_results = musicbrainzngs.get_releases_in_collection(collection=args.MB_collection, limit=_limit, offset=_offset * _limit)['collection']['release-list']
         logging.info("Grabbed " + str(len(mb_results)) + " albums from MB.")
+        if len(mb_results) == 0 and _progress == musicbrainzngs.get_releases_in_collection(collection=args.MB_collection)['collection']['release-count']: break
+
         _limit = len(mb_results)
+        _progress += len(mb_results)
 
         for mb_album in mb_results:
             if len(ampacheConnection.advanced_search([['mbid_album',4,mb_album['id']]])) == 0:
@@ -117,4 +124,5 @@ else:
             logging.info("Reset limit back to 100.")
             _limit = 100
         _offset += 1
+        logging.info("  Grabbed " + str(_progress) + " total albums.")
         logging.info(" Loop number " + str(_offset) + ".")
