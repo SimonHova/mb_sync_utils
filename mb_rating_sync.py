@@ -238,7 +238,7 @@ _rating = ""
 amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=_limit, offset=_offset * _limit)
 
 if args.sync_from == 'Ampache':
-    if len(amp_results) <= 1:
+    if len(amp_results) != 0:
         for song in amp_results:
             if song.tag == 'song':
                 _mbid   = song.find('mbid').text
