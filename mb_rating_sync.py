@@ -82,11 +82,7 @@ if not args.Amp_ID:
     args.Amp_ID = config['ampache']['user']
 
 if args.verbose:
-    logger.info("setting debug on")
     logger.setLevel(level=logging.DEBUG)
-    logger.debug("debug is set")
-else:
-    logger.info("debug not set")
 
 musicbrainzngs.auth(args.MB_ID, args.MB_PW)
 musicbrainzngs.set_useragent(
