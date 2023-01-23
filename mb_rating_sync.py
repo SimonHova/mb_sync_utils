@@ -10,6 +10,8 @@ import ampache
 from bs4 import BeautifulSoup
 from requests import get as r_get
 
+from time import sleep
+
 def ampRating_to_mbRating( _rating ):
     return int(_rating) * 20
 
@@ -188,6 +190,9 @@ if args.sync_from == 'Ampache':
             if _mbid != None:
                 amp_albums.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
                 logger.debug("Got " + str(len(amp_albums)) + " albums")
+
+                logger.debug("Starting 1 second sleep after connecting to MB.")
+                sleep(1)
                 
                 _mbid = None
                 _rating = ""
