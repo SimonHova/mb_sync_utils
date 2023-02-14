@@ -140,10 +140,17 @@ if args.verbose:
 
 if args.sync_from == 'MusicBrainz' or args.sync_to == 'MusicBrainz':
     musicbrainzngs = _get_MB()
-if args.sync_from == 'Ampache' or args.sync_to == 'Ampache':
-    ampacheConnection = _get_amp()
+
 if args.sync_from == 'Kodi' or args.sync_to == 'Kodi':
     kodiConnection = _get_kodiConnection()
+
+if args.sync_from == 'Ampache' or args.sync_to == 'Ampache':
+    ampacheConnection = _get_amp()
+
+if args.sync_from == 'Kodi' or args.sync_to == 'Kodi':
+    kodiConnection = _get_kodiConnection()
+    kodiCursor = kodiConnection.cursor()
+    kodiCursor.autocommit = False
 
 rules = [['myrating',4,1]]
 
@@ -164,7 +171,7 @@ match args.sync_from:
                 _rating = artist.find('rating').text
             if _mbid != "":
                 artists_from.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-                logger.debug("Got " + str(len(amp_artists)) + " artists to sync from")
+                logger.debug("Got " + str(len(artists_from)) + " artists to sync from")
             
             _mbid=""
             _rating=""
@@ -188,7 +195,7 @@ match args.sync_from:
                         if subspan.get('class')[0] == "current-rating":
                             _rating = subspan.contents[0]
                 artists_from.update( { _mbid : _rating } )
-                logger.debug("Got " + str(len(amp_artists)) + " artists to sync from")
+                logger.debug("Got " + str(len(artists_from)) + " artists to sync from")
                 
                 _mbid=""
                 _rating=""
@@ -203,26 +210,26 @@ match args.sync_to:
             if artist != "":  # the first result seems to be null!
                 amp_artist = ampacheConnection.advanced_search([['mbid',4,artist]], object_type='artist')
                 if len(amp_artist) == 0: # no matches!
-                    logger.info('Skipping artist MBID {}; no matches!'.format(artist))
+                    logger.debug('Skipping artist MBID {}; no matches!'.format(artist))
                 else:
                     try:
                         amp_rating = amp_artist[1].find('rating')
                     except:
-                        logger.info('Skipping artist MBID {}; no matches!'.format(artist))
+                        logger.debug('Skipping artist MBID {}; no matches!'.format(artist))
                     else:
                         if amp_rating == None:
-                            logger.info('Artist had no rating. Setting rating {} for artist MBID {}'.format(rating,artist))
+                            logger.debug('Artist had no rating. Setting rating {} for artist MBID {}'.format(rating,artist))
                             ampacheConnection.rate(object_id=int(amp_artist[1].attrib['id']), rating=int(rating), object_type='artist')
                         else:
                             if rating == amp_rating.text:
-                                logger.info('Ratings match for artist MBID {}'.format(artist))
+                                logger.debug('Ratings match for artist MBID {}'.format(artist))
                             else:
-                                logger.info('Ampache had rating of {}. Setting rating {} for artist MBID {}'.format(amp_rating.text,rating,artist))
+                                logger.debug('Ampache had rating of {}. Setting rating {} for artist MBID {}'.format(amp_rating.text,rating,artist))
                                 amp_rated = ampacheConnection.rate(object_id=int(amp_artist[1].attrib['id']), rating=int(rating), object_type='artist')
                                 # todo: check amp_rated for error
     case 'Kodi':
         # Kodi does not currently support artist ratings.
-        
+        pass
     case 'MusicBrainz':
         musicbrainzngs.submit_ratings(artist_ratings=artists_from)
 
@@ -237,19 +244,20 @@ match args.sync_from:
         amp_results = ampacheConnection.advanced_search(rules, object_type='album')
         
         for album in amp_results:
-        if album.tag == 'album':
-            _mbid   = album.find('mbid').text
-            _rating = album.find('rating').text
-            if _mbid != None:
-                albums_from.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
-                logger.debug("Got " + str(len(albums_from)) + " albums")
-
-                logger.debug("Starting 1 second sleep after connecting to MB.")
-                sleep(1)
-                
-                _mbid = None
-                _rating = ""
+            if album.tag == 'album':
+                _mbid   = album.find('mbid').text
+                _rating = album.find('rating').text
+                if _mbid != None:
+                    albums_from.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
+                    logger.debug("Got " + str(len(albums_from)) + " albums")
+                    
+                    logger.debug("Starting 1 second sleep after connecting to MB.")
+                    sleep(1)
+                    
+                    _mbid = None
+                    _rating = ""
     case 'Kodi':
+        pass
     case 'MusicBrainz':
         mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/release_group'.format(args.MB_ID)
         next_mb_ratings_link = ''
@@ -266,8 +274,8 @@ match args.sync_from:
                     for subspan in span.find_all('span'):
                         if subspan.get('class')[0] == "current-rating":
                             _rating = subspan.contents[0]
-                mb_albums.update( { _mbid : _rating } )
-                logger.info("Got " + str(len(mb_albums)) + " albums")
+                albums_from.update( { _mbid : _rating } )
+                logger.info("Got " + str(len(albums_from)) + " albums")
                 _mbid=""
                 _rating=""
             if mb_ratings_link != next_mb_ratings_link:
@@ -277,40 +285,40 @@ match args.sync_from:
 
 match args.sync_to:
     case 'Ampache':
+        for album,rating in albums_from.items():
+            if album is not None and album != "":  # skip null results
+                for __album in get_releases_by_release_group_id( album ):
+                    logger.debug('Looking up release MBID {}'.format(__album))
+                    amp_album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
+                    if len(amp_album) == 0: # no matches!
+                        logger.debug('Skipping album; no matches!')
+                    else:
+                        if amp_album.tag == 'album':
+                            try:
+                                amp_rating = amp_album[1].find('rating')
+                            except:
+                                logger.debug('Skipping album MBID {}; no matches!'.format(__album))
+                            else:
+                                if amp_rating.text is None:
+                                    logger.debug('album had no rating. Setting rating {} for album MBID {}'.format(rating,__album))
+                                    amp_rated = ampacheConnection.rate(object_id=int(amp_album[1].attrib['id']), rating=int(rating), object_type='album')
+                                    # todo: check amp_rated for error
+                                else:
+                                    if rating == amp_rating.text:
+                                        logger.debug('Ratings match for album MBID {}'.format(__album))
+                                    else:
+                                        logger.debug('Ampache had rating of {}. Setting rating {} for album MBID {}'.format(amp_rating.text,rating,__album))
+                                        amp_rated = ampacheConnection.rate(object_id=int(amp_album.attrib['id']), rating=int(rating), object_type='album')
+                                        # todo: check amp_rated for error
     case 'Kodi':
+        for album,rating in albums_from.items():
+            if album is not None and album != "":  # skip null results
+                print('Setting rating {} for album MBID {}'.format(rating,album))
+                kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",(rating,album))
+        kodiConnection.commit()
     case 'MusicBrainz':
         logger.info("Submitting ratings for " + str(len(albums_from)) + " albums")
         musicbrainzngs.submit_ratings(release_group_ratings=albums_from)
-
-if args.sync_from == 'Ampache':
-else:
-
-    
-    for album,rating in mb_albums.items():
-        if album is not None and album != "":  # if the first result is not null!
-            for __album in get_releases_by_release_group_id( album ):
-                logger.info('Looking up release MBID {}'.format(__album))
-                amp_album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
-                if len(amp_album) == 0: # no matches!
-                    logger.info('Skipping album; no matches!')
-                else:
-                    if amp_album.tag == 'album':
-                        try:
-                            amp_rating = amp_album[1].find('rating')
-                        except:
-                            logger.info('Skipping album MBID {}; no matches!'.format(__album))
-                        else:
-                            if amp_rating.text is None:
-                                logger.info('album had no rating. Setting rating {} for album MBID {}'.format(rating,__album))
-                                amp_rated = ampacheConnection.rate(object_id=int(amp_album[1].attrib['id']), rating=int(rating), object_type='album')
-                                # todo: check amp_rated for error
-                            else:
-                                if rating == amp_rating.text:
-                                    logger.info('Ratings match for album MBID {}'.format(__album))
-                                else:
-                                    logger.info('Ampache had rating of {}. Setting rating {} for album MBID {}'.format(amp_rating.text,rating,__album))
-                                    amp_rated = ampacheConnection.rate(object_id=int(amp_album.attrib['id']), rating=int(rating), object_type='album')
-                                    # todo: check amp_rated for error
 
 # Last, the songs
 _offset = 0
