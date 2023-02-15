@@ -20,6 +20,12 @@ def ampRating_to_mbRating( _rating ):
 def mbRating_to_ampRating( _rating ):
     return int(_rating) / 20
 
+def mbRating_to_KodiRating( _rating ):
+    return int(_rating) / 10
+
+def ampRating_to_KodiRating( _rating ):
+    return int(_rating) * 2
+
 def get_release_group_by_release_id( _id ):
     logger.debug("Asking MB for release ID " + _id)
     return musicbrainzngs.get_release_by_id( id = _id, includes=[ 'release-groups' ])['release']['release-group']['id']
@@ -313,8 +319,8 @@ match args.sync_to:
     case 'Kodi':
         for album,rating in albums_from.items():
             if album is not None and album != "":  # skip null results
-                logger.debug('Setting rating {} for album MBID {}'.format(rating,album))
-                kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",(rating,album))
+                logger.debug('Setting rating {} for album MBID {}'.format( ampRating_to_KodiRating( rating ),album))
+                kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",( ampRating_to_KodiRating( rating ),album))
         kodiConnection.commit()
     case 'MusicBrainz':
         logger.info("Submitting ratings for " + str(len(albums_from)) + " albums")
