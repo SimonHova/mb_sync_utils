@@ -313,7 +313,7 @@ match args.sync_to:
     case 'Kodi':
         for album,rating in albums_from.items():
             if album is not None and album != "":  # skip null results
-                print('Setting rating {} for album MBID {}'.format(rating,album))
+                logger.debug('Setting rating {} for album MBID {}'.format(rating,album))
                 kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",(rating,album))
         kodiConnection.commit()
     case 'MusicBrainz':
