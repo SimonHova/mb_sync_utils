@@ -257,9 +257,6 @@ match args.sync_from:
                     albums_from.update( { get_release_group_by_release_id( _mbid ) : ampRating_to_mbRating( _rating ) } )
                     logger.debug("Got " + str(len(albums_from)) + " albums")
                     
-                    logger.debug("Starting 1 second sleep after connecting to MB.")
-                    sleep(1)
-                    
                     _mbid = None
                     _rating = ""
     case 'Kodi':
@@ -330,86 +327,101 @@ match args.sync_to:
 _offset = 0
 _limit = 5000
 
-mb_songs = {}
+songs_from = {}
 _mbid = ""
 _rating = ""
 _chunk = 0
 
-if args.sync_from == 'Ampache':
-    while(True):
-        amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=_limit, offset=_offset * _limit)
-        logger.debug('Run {}: {} songs'.format(_offset+1,len(amp_results)))
-        if(len(amp_results)>1):
-            amp_songs = {}
-            for song in amp_results:
-                if song.tag == 'song':
-                    _mbid   = song.find('mbid').text
-                    _rating = song.find('rating').text
-                    if _mbid != None:
-                        amp_songs.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-                        # logger.debug("Got " + str(len(amp_songs)) + " songs")
-                        _mbid=None
-                        _rating=""
-                    else:
-                        logger.info('Song ID not found for song {} by {}'.format(song.find('title'),song.find('artist')))
-        else:
-            break
-        logger.debug("Submitting ratings for " + str(len(amp_songs)) + " songs")
-    
+match args.sync_from:
+    case 'Ampache':
+            while(True):
+                amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=_limit, offset=_offset * _limit)
+                logger.debug('Run {}: {} songs'.format(_offset+1,len(amp_results)))
+                if(len(amp_results)>1):
+                    songs_from = {}
+                    for song in amp_results:
+                        if song.tag == 'song':
+                            _mbid   = song.find('mbid').text
+                            _rating = song.find('rating').text
+                            if _mbid != None:
+                                songs_from.update( { _mbid : ampRating_to_mbRating( _rating ) } )
+                                # logger.debug("Got " + str(len(songs_from)) + " songs")
+                                _mbid=None
+                                _rating=""
+                            else:
+                                logger.info('Song ID not found for song {} by {}'.format(song.find('title'),song.find('artist')))
+                else:
+                    logger.info("Got " + str(len(songs_from)) + " songs")
+                    break
+                _offset += 1
+    case 'MusicBrainz':
+        mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/recording'.format(args.MB_ID)
+        next_mb_ratings_link = ''
+        while mb_ratings_link:
+            r = r_get(mb_ratings_link)
+            soup = BeautifulSoup(r.text, 'html.parser')
+            for list in soup.find_all('li'):
+                for link in list.find_all('a'):
+                    if "/recording/" in link.get('href'):
+                        _mbid = (link.get('href')[11:])
+                    elif link.contents[0] == 'Next':
+                        next_mb_ratings_link=link.get('href')
+                for span in list.find_all('span'):
+                    for subspan in span.find_all('span'):
+                        if subspan.get('class')[0] == "current-rating":
+                            _rating = subspan.contents[0]
+                songs_from.update( { _mbid : _rating } )
+                # logger.debug("Got " + str(len(songs_from)) + " songs")
+                _mbid=""
+                _rating=""
+            if mb_ratings_link != next_mb_ratings_link:
+                mb_ratings_link = next_mb_ratings_link
+            else:
+                mb_ratings_link = ''
+        
+        logger.info("Got " + str(len(songs_from)) + " songs")
+    case 'Kodi':
+        pass
+
+match args.sync_to:
+    case 'Ampache':
+        for song,rating in songs_from.items():
+            if song != "":  # the first result seems to be null!
+                songs_to = ampacheConnection.advanced_search([['mbid',4,song]], object_type='song')
+                if len(songs_to) == 0: # no matches!
+                    logger.info('Skipping song; no matches!')
+                else:
+                    for song_to in songs_to:
+                        if song_to.tag == 'song':
+                            try:
+                                amp_rating = song_to.find('rating')
+                            except:
+                                logger.info('Skipping song MBID {}; no matches!'.format(song))
+                            else:
+                                if amp_rating == None:
+                                    logger.info('song had no rating. Setting rating {} for song MBID {}'.format(rating,song))
+                                    ampacheConnection.rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')
+                                else:
+                                    if rating == amp_rating.text:
+                                        logger.info('Ratings match for song MBID {}'.format(song))
+                                    else:
+                                        logger.info('Ampache had rating of {}. Setting rating {} for song MBID {}'.format(amp_rating.text,rating,song))
+                                        if int(ampacheConnection.rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')[0].attrib['code']) != 1:
+                                            logger.info('Broke at song MBID {}'.format(song))
+                                            break
+    case 'MusicBrainz':
+        logger.debug("Submitting ratings for " + str(len(songs_from)) + " songs")
+        
         _chunk_offset = 1
-        for chunk in [ dict(list(amp_songs.items()) [_chunk:_chunk + 1000]) for _chunk in range(0, len(amp_songs), 1000) ]:
+        for chunk in [ dict(list(songs_from.items()) [_chunk:_chunk + 1000]) for _chunk in range(0, len(songs_from), 1000) ]:
             logger.debug("Submitting chunk " + str(_chunk_offset))
             musicbrainzngs.submit_ratings(recording_ratings=chunk)
             
             _chunk_offset+=1
         _offset+=1
-else:
-    mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/recording'.format(args.MB_ID)
-    next_mb_ratings_link = ''
-    while mb_ratings_link:
-        r = r_get(mb_ratings_link)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        for list in soup.find_all('li'):
-            for link in list.find_all('a'):
-                if "/recording/" in link.get('href'):
-                    _mbid = (link.get('href')[11:])
-                elif link.contents[0] == 'Next':
-                    next_mb_ratings_link=link.get('href')
-            for span in list.find_all('span'):
-                for subspan in span.find_all('span'):
-                    if subspan.get('class')[0] == "current-rating":
-                        _rating = subspan.contents[0]
-            mb_songs.update( { _mbid : _rating } )
-            # logger.debug("Got " + str(len(mb_songs)) + " songs")
-            _mbid=""
-            _rating=""
-        if mb_ratings_link != next_mb_ratings_link:
-            mb_ratings_link = next_mb_ratings_link
-        else:
-            mb_ratings_link = ''
-
-    logger.info("Got " + str(len(mb_songs)) + " songs")
-    for song,rating in mb_songs.items():
-        if song != "":  # the first result seems to be null!
-            amp_songs = ampacheConnection.advanced_search([['mbid',4,song]], object_type='song')
-            if len(amp_songs) == 0: # no matches!
-                logger.info('Skipping song; no matches!')
-            else:
-                for amp_song in amp_songs:
-                    if amp_song.tag == 'song':
-                        try:
-                            amp_rating = amp_song.find('rating')
-                        except:
-                            logger.info('Skipping song MBID {}; no matches!'.format(song))
-                        else:
-                            if amp_rating == None:
-                                logger.info('song had no rating. Setting rating {} for song MBID {}'.format(rating,song))
-                                ampacheConnection.rate(object_id=int(amp_song.attrib['id']), rating=int(rating), object_type='song')
-                            else:
-                                if rating == amp_rating.text:
-                                    logger.info('Ratings match for song MBID {}'.format(song))
-                                else:
-                                    logger.info('Ampache had rating of {}. Setting rating {} for song MBID {}'.format(amp_rating.text,rating,song))
-                                    if int(ampacheConnection.rate(object_id=int(amp_song.attrib['id']), rating=int(rating), object_type='song')[0].attrib['code']) != 1:
-                                        logger.info('Broke at song MBID {}'.format(song))
-                                        break
+    case 'Kodi':
+        for song,rating in songs_from.items():
+            if song is not None and song != "":  # skip null results
+                logger.debug('Setting rating {} for song MBID {}'.format( ampRating_to_KodiRating( rating ),song))
+                kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",( ampRating_to_KodiRating( rating ),song))
+        kodiConnection.commit()
