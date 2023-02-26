@@ -167,8 +167,7 @@ _artists = {}
 _mbid = ""
 _rating=""
 
-match args.sync_from:
-    case 'Ampache':
+if args.sync_from == 'Ampache':
         amp_results = ampacheConnection.advanced_search(rules, object_type='artist')
         
         for artist in amp_results:
@@ -181,10 +180,10 @@ match args.sync_from:
             
             _mbid=""
             _rating=""
-    case 'Kodi':
+elif args.sync_from == 'Kodi':
         # Kodi does not currently support artist ratings. Need to return a blank array.
         artists_from = {}
-    case 'MusicBrainz':
+elif args.sync_from == 'MusicBrainz':
         mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/artist'.format(args.MB_ID)
         next_mb_ratings_link = ''
         while mb_ratings_link:
@@ -210,8 +209,7 @@ match args.sync_from:
             else:
                 mb_ratings_link = ''
 
-match args.sync_to:
-    case 'Ampache':
+if args.sync_to == 'Ampache':
         for artist,rating in artists_from.items():
             if artist != "":  # the first result seems to be null!
                 amp_artist = ampacheConnection.advanced_search([['mbid',4,artist]], object_type='artist')
@@ -233,10 +231,10 @@ match args.sync_to:
                                 logger.debug('Ampache had rating of {}. Setting rating {} for artist MBID {}'.format(amp_rating.text,rating,artist))
                                 amp_rated = ampacheConnection.rate(object_id=int(amp_artist[1].attrib['id']), rating=int(rating), object_type='artist')
                                 # todo: check amp_rated for error
-    case 'Kodi':
+if args.sync_to == 'Kodi':
         # Kodi does not currently support artist ratings.
         pass
-    case 'MusicBrainz':
+if args.sync_to == 'MusicBrainz':
         musicbrainzngs.submit_ratings(artist_ratings=artists_from)
 
 # Then, the release groups
@@ -245,8 +243,7 @@ albums_to={}
 _mbid=None
 _rating=""
 
-match args.sync_from:
-    case 'Ampache':
+if args.sync_from == 'Ampache':
         amp_results = ampacheConnection.advanced_search(rules, object_type='album')
         
         for album in amp_results:
@@ -259,9 +256,9 @@ match args.sync_from:
                     
                     _mbid = None
                     _rating = ""
-    case 'Kodi':
+elif args.sync_from == 'Kodi':
         pass
-    case 'MusicBrainz':
+elif args.sync_from == 'MusicBrainz':
         mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/release_group'.format(args.MB_ID)
         next_mb_ratings_link = ''
         while mb_ratings_link:
@@ -286,8 +283,7 @@ match args.sync_from:
             else:
                 mb_ratings_link = ''
 
-match args.sync_to:
-    case 'Ampache':
+if args.sync_to == 'Ampache':
         for album,rating in albums_from.items():
             if album is not None and album != "":  # skip null results
                 for __album in get_releases_by_release_group_id( album ):
@@ -313,13 +309,13 @@ match args.sync_to:
                                         logger.debug('Ampache had rating of {}. Setting rating {} for album MBID {}'.format(amp_rating.text,rating,__album))
                                         amp_rated = ampacheConnection.rate(object_id=int(amp_album.attrib['id']), rating=int(rating), object_type='album')
                                         # todo: check amp_rated for error
-    case 'Kodi':
+elif args.sync_to == 'Kodi':
         for album,rating in albums_from.items():
             if album is not None and album != "":  # skip null results
                 logger.debug('Setting rating {} for album MBID {}'.format( ampRating_to_KodiRating( rating ),album))
                 kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",( ampRating_to_KodiRating( rating ),album))
         kodiConnection.commit()
-    case 'MusicBrainz':
+elif args.sync_to == 'MusicBrainz':
         logger.info("Submitting ratings for " + str(len(albums_from)) + " albums")
         musicbrainzngs.submit_ratings(release_group_ratings=albums_from)
 
@@ -332,8 +328,7 @@ _mbid = ""
 _rating = ""
 _chunk = 0
 
-match args.sync_from:
-    case 'Ampache':
+if args.sync_from == 'Ampache':
             while(True):
                 amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=_limit, offset=_offset * _limit)
                 logger.debug('Run {}: {} songs'.format(_offset+1,len(amp_results)))
@@ -354,7 +349,7 @@ match args.sync_from:
                     logger.info("Got " + str(len(songs_from)) + " songs")
                     break
                 _offset += 1
-    case 'MusicBrainz':
+elif args.sync_from == 'MusicBrainz':
         mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/recording'.format(args.MB_ID)
         next_mb_ratings_link = ''
         while mb_ratings_link:
@@ -380,11 +375,10 @@ match args.sync_from:
                 mb_ratings_link = ''
         
         logger.info("Got " + str(len(songs_from)) + " songs")
-    case 'Kodi':
+elif args.sync_from == 'Kodi':
         pass
 
-match args.sync_to:
-    case 'Ampache':
+if args.sync_to == 'Ampache':
         for song,rating in songs_from.items():
             if song != "":  # the first result seems to be null!
                 songs_to = ampacheConnection.advanced_search([['mbid',4,song]], object_type='song')
@@ -409,7 +403,7 @@ match args.sync_to:
                                         if int(ampacheConnection.rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')[0].attrib['code']) != 1:
                                             logger.info('Broke at song MBID {}'.format(song))
                                             break
-    case 'MusicBrainz':
+elif args.sync_to == 'MusicBrainz':
         logger.debug("Submitting ratings for " + str(len(songs_from)) + " songs")
         
         _chunk_offset = 1
@@ -419,7 +413,7 @@ match args.sync_to:
             
             _chunk_offset+=1
         _offset+=1
-    case 'Kodi':
+elif args.sync_to == 'Kodi':
         for song,rating in songs_from.items():
             if song is not None and song != "":  # skip null results
                 logger.debug('Setting rating {} for song MBID {}'.format( ampRating_to_KodiRating( rating ),song))
