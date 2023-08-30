@@ -326,7 +326,7 @@ elif args.sync_to == 'Kodi':
                 kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",( ampRating_to_KodiRating( rating ),album))
         kodiConnection.commit()
 elif args.sync_to == 'MusicBrainz':
-        logger.info("Submitting ratings for " + str(len(albums_from)) + " albums")
+        logger.debug("Submitting ratings for " + str(len(albums_from)) + " albums")
         musicbrainzngs.submit_ratings(release_group_ratings=albums_from)
 
 # Last, the songs
@@ -356,7 +356,7 @@ if args.sync_from == 'Ampache':
                             else:
                                 logger.warning('Song ID not found for song {} by {}'.format(song.find('title'),song.find('artist')))
                 else:
-                    logger.info("Got " + str(len(songs_from)) + " songs")
+                    logger.debug("Got " + str(len(songs_from)) + " songs")
                     break
                 _offset += 1
 elif args.sync_from == 'MusicBrainz':
@@ -384,7 +384,7 @@ elif args.sync_from == 'MusicBrainz':
             else:
                 mb_ratings_link = ''
         
-        logger.info("Got " + str(len(songs_from)) + " songs")
+        logger.debug("Got " + str(len(songs_from)) + " songs")
 elif args.sync_from == 'Kodi':
         pass
 
@@ -403,7 +403,7 @@ if args.sync_to == 'Ampache':
                                 logger.warning('Skipping song MBID {}; no matches!'.format(song))
                             else:
                                 if amp_rating == None:
-                                    logger.info('song had no rating. Setting rating {} for song MBID {}'.format(rating,song))
+                                    logger.debug('song had no rating. Setting rating {} for song MBID {}'.format(rating,song))
                                     ampacheConnection.rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')
                                 else:
                                     if rating == amp_rating.text:
