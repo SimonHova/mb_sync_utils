@@ -179,7 +179,7 @@ _rating=""
 
 if args.sync_from == 'Ampache':
     amp_results = ampacheConnection.advanced_search(rules, object_type='artist')
-
+    
     for artist in amp_results:
         if artist.tag == 'artist':
             _mbid   = artist.find('mbid').text
@@ -227,24 +227,24 @@ if args.sync_to == 'Ampache':
                 logger.warning('Skipping artist MBID {}; no matches!'.format(artist))
             else:
                 try:
-                    amp_rating = amp_artist[1].find('rating')
+                    amp_rating = amp_artist[2].find('rating')
                 except:
                     logger.warning('Skipping artist MBID {}; no matches!'.format(artist))
                 else:
                     if amp_rating == None:
                         logger.debug('Artist had no rating. Setting rating {} for artist MBID {}'.format(rating,artist))
-                        ampacheConnection.rate(object_id=int(amp_artist[1].attrib['id']), rating=int(rating), object_type='artist')
+                        ampacheConnection.rate(object_id=int(amp_artist[2].attrib['id']), rating=int(rating), object_type='artist')
                     else:
                         if rating == amp_rating.text:
                             logger.debug('Ratings match for artist MBID {}'.format(artist))
                         else:
                             logger.debug('Ampache had rating of {}. Setting rating {} for artist MBID {}'.format(amp_rating.text,rating,artist))
-                            amp_rated = ampacheConnection.rate(object_id=int(amp_artist[1].attrib['id']), rating=int(rating), object_type='artist')
+                            amp_rated = ampacheConnection.rate(object_id=int(amp_artist[2].attrib['id']), rating=int(rating), object_type='artist')
                             # todo: check amp_rated for error
-if args.sync_to == 'Kodi':
+elif args.sync_to == 'Kodi':
     # Kodi does not currently support artist ratings.
     pass
-if args.sync_to == 'MusicBrainz':
+elif args.sync_to == 'MusicBrainz':
     musicbrainzngs.submit_ratings(artist_ratings=artists_from)
 
 # Then, the release groups
@@ -306,13 +306,13 @@ if args.sync_to == 'Ampache':
                 else:
                     if amp_album.tag == 'album':
                         try:
-                            amp_rating = amp_album[1].find('rating')
+                            amp_rating = amp_album[2].find('rating')
                         except:
                             logger.debug('Skipping album MBID {}; no matches!'.format(__album))
                         else:
                             if amp_rating.text is None:
                                 logger.debug('album had no rating. Setting rating {} for album MBID {}'.format(rating,__album))
-                                amp_rated = ampacheConnection.rate(object_id=int(amp_album[1].attrib['id']), rating=int(rating), object_type='album')
+                                amp_rated = ampacheConnection.rate(object_id=int(amp_album[2].attrib['id']), rating=int(rating), object_type='album')
                                 _album_rated = true
                                 # todo: check amp_rated for error
                             else:
@@ -391,7 +391,7 @@ elif args.sync_from == 'MusicBrainz':
         else:
             mb_ratings_link = ''
     
-    logger.debug("Got " + str(len(songs_from)) + " songs")
+    logger.debug("Got " + str(len(songs_from)) + " songs from MB")
 elif args.sync_from == 'Kodi':
     pass
 
