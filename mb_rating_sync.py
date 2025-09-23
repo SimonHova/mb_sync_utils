@@ -3,7 +3,6 @@ import argparse
 import logging
 
 import musicbrainzngs
-import sys
 
 import ampache
 
@@ -11,8 +10,6 @@ import mariadb
 
 from bs4 import BeautifulSoup
 from requests import get as r_get
-
-from time import sleep
 
 def ampRating_to_mbRating( _rating ):
     return int(_rating) * 20
