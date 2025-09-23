@@ -4,8 +4,6 @@ import logging
 
 import musicbrainzngs
 
-
-
 from bs4 import BeautifulSoup
 from requests import get as r_get
 
