@@ -330,8 +330,11 @@ elif args.sync_to == 'Kodi':
             kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",( ampRating_to_KodiRating( rating ),album))
     kodiConnection.commit()
 elif args.sync_to == 'MusicBrainz':
-    logger.debug("Submitting ratings for " + str(len(albums_from)) + " albums")
-    musicbrainzngs.submit_ratings(release_group_ratings=albums_from)
+    try:
+        logger.debug("Submitting ratings for " + str(len(albums_from)) + " albums")
+        musicbrainzngs.submit_ratings(release_group_ratings=albums_from)
+    except Exception as e:
+        logger.error(f"Error submitting album ratings to MusicBrainz: {e}")
 
 # Last, the songs
 _offset = 0
@@ -418,23 +421,24 @@ if args.sync_to == 'Ampache':
                                         logger.error('Broke at song MBID {}'.format(song))
                                         break
 elif args.sync_to == 'MusicBrainz':
-    logger.debug("Submitting ratings for " + str(len(songs_from)) + " songs")
-    
-    _chunk_offset = 1
-    for chunk in [ dict(list(songs_from.items()) [_chunk:_chunk + 1000]) for _chunk in range(0, len(songs_from), 1000) ]:
-        logger.debug("Submitting chunk " + str(_chunk_offset))
-        musicbrainzngs.submit_ratings(recording_ratings=chunk)
+    try:
+        logger.debug("Submitting ratings for " + str(len(songs_from)) + " songs")
         
-        _chunk_offset+=1
-    _offset+=1
+        _chunk_offset = 1
+        for chunk in [ dict(list(songs_from.items()) [_chunk:_chunk + 1000]) for _chunk in range(0, len(songs_from), 1000) ]:
+            logger.debug("Submitting chunk " + str(_chunk_offset))
+            musicbrainzngs.submit_ratings(recording_ratings=chunk)
+            
+            _chunk_offset+=1
+        _offset+=1
+    except Exception as e:
+        logger.error(f"Error submitting album ratings to MusicBrainz: {e}")
 elif args.sync_to == 'Kodi':
     for song,rating in songs_from.items():
         if song is not None and song != "":  # skip null results
             logger.debug('Setting rating {} for song MBID {}'.format( ampRating_to_KodiRating( rating ),song))
             kodiCursor.execute("""UPDATE album SET iUserrating = (%s) WHERE strReleaseGroupMBID = %s;""",( ampRating_to_KodiRating( rating ),song))
     kodiConnection.commit()
-
-
 
 # for song,rating in songs_from.items():
 #     print("Submitting ratings for MBID:" + song)
