@@ -181,9 +181,9 @@ if args.sync_from == 'Ampache':
         if artist.tag == 'artist':
             _mbid   = artist.find('mbid').text
             _rating = artist.find('rating').text
-        if _mbid != "":
-            artists_from.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-            logger.debug("Got " + str(len(artists_from)) + " artists to sync from")
+            if _mbid and _rating:
+                artists_from.update( { _mbid : ampRating_to_mbRating( _rating ) } )
+                logger.debug("Got " + str(len(artists_from)) + " artists to sync from")
         
         _mbid=""
         _rating=""
