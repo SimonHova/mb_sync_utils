@@ -2,3 +2,4 @@
 *.ini
 fix_artists/ampache-cookies.txt
 .vscode/settings.json
+.vscode/launch.json
