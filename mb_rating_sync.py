@@ -356,32 +356,73 @@ _rating = ""
 _chunk = 0
 
 if args.sync_from == 'Ampache':
+    def get_ampache_songs_recursively(rules, object_type, limit, offset):
+        """
+        Recursively fetches songs from Ampache, splitting the request if it fails,
+        to isolate problematic records.
+        """
+        amp_results = ampacheConnection.advanced_search(rules, object_type=object_type, limit=limit, offset=offset)
+        
+        if amp_results is False:
+            if limit > 1:
+                logger.debug(f"Advanced search failed for offset {offset} with limit {limit}. Splitting.")
+                mid_point = limit // 2
+                
+                results1 = get_ampache_songs_recursively(rules, object_type, mid_point, offset)
+                results2 = get_ampache_songs_recursively(rules, object_type, limit - mid_point, offset + mid_point)
+
+                all_results = []
+                if results1:
+                    all_results.extend(results1)
+                if results2:
+                    all_results.extend(results2)
+                return all_results
+            else:
+                logger.error(f"Failed to get song at offset {offset}. This record may be corrupt in Ampache.")
+                return [] # Return empty list for the failed record
+        
+        return amp_results if amp_results is not None else []
+
+    all_amp_results = []
     while(True):
+        logger.debug(f"Fetching songs with limit {_limit} and offset {_offset * _limit}")
         amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=_limit, offset=_offset * _limit)
+        
+        if amp_results is False:
+            logger.warning(f"Batch fetch failed for offset {_offset * _limit} with limit {_limit}. Splitting to find bad records.")
+            amp_results = get_ampache_songs_recursively(rules, 'song', _limit, _offset * _limit)
+
         if amp_results is None:
-            logger.error("Failed to get songs from Ampache. 'advanced_search' returned None.")
+            # This can mean an error or just no results. The recursive function handles 'False' for error.
+            # 'None' from the API usually means no more items.
+            logger.debug("advanced_search returned None, assuming end of songs.")
             break
-        elif amp_results is False:
-            logger.error("Failed to get songs from Ampache. 'advanced_search' returned False.")
+        
+        logger.debug('Page {}: got {} songs'.format(_offset+1,len(amp_results)))
+        if len(amp_results) > 0:
+            all_amp_results.extend(amp_results)
+        
+        if len(amp_results) < _limit:
+            # Last page
+            logger.debug("Got fewer songs than limit, assuming end of list.")
             break
-        logger.debug('Run {}: {} songs'.format(_offset+1,len(amp_results)))
-        if(len(amp_results)>1):
-            songs_from = {}
-            for song in amp_results:
-                if song.tag == 'song':
-                    _mbid   = song.find('mbid').text
-                    _rating = song.find('rating').text
-                    if _mbid != None:
-                        songs_from.update( { _mbid : ampRating_to_mbRating( _rating ) } )
-                        # logger.debug("Got " + str(len(songs_from)) + " songs")
-                        _mbid=None
-                        _rating=""
-                    else:
-                        logger.warning('Song ID not found for song {} by {}'.format(song.find('title'),song.find('artist')))
-        else:
-            logger.debug("Got " + str(len(songs_from)) + " songs")
-            break
+
         _offset += 1
+
+    logger.info(f"Total songs fetched from Ampache: {len(all_amp_results)}")
+    songs_from = {}
+    for song in all_amp_results:
+        if song.tag == 'song':
+            _mbid   = song.find('mbid').text
+            _rating = song.find('rating').text
+            if _mbid:
+                songs_from.update( { _mbid : ampRating_to_mbRating( _rating ) } )
+            else:
+                title_elem = song.find('title')
+                artist_elem = song.find('artist')
+                title = title_elem.text if title_elem is not None else "Unknown Title"
+                artist = artist_elem.text if artist_elem is not None else "Unknown Artist"
+                logger.warning(f'Song ID not found for song {title} by {artist}')
 elif args.sync_from == 'MusicBrainz':
     mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/recording'.format(args.MB_ID)
     next_mb_ratings_link = ''
