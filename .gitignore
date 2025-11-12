@@ -1,3 +1,4 @@
 # Ignore .ini files
 *.ini
 fix_artists/ampache-cookies.txt
+.vscode/settings.json

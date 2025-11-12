@@ -253,7 +253,7 @@ _rating=""
 if args.sync_from == 'Ampache':
     amp_results = ampacheConnection.advanced_search(rules, object_type='album')
 
-    for album in amp_results:
+    for album in amp_results[:100]:
         if album.tag == 'album':
             _mbid   = album.find('mbid').text
             _rating = album.find('rating').text
@@ -335,6 +335,8 @@ elif args.sync_to == 'MusicBrainz':
         musicbrainzngs.submit_ratings(release_group_ratings=albums_from)
     except Exception as e:
         logger.error(f"Error submitting album ratings to MusicBrainz: {e}")
+    else:
+        logger.debug("Ratings submitted successfully")
 
 # Last, the songs
 _offset = 0
