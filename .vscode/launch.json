@@ -7,6 +7,9 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
+            "env": {
+                "PYDEVD_WARN_EVALUATION_TIMEOUT": "30" // Sets timeout to 30 seconds
+            },
             "args": [
                 "--config",
                 "simon.ini",
