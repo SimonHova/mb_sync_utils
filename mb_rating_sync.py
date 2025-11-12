@@ -361,6 +361,9 @@ if args.sync_from == 'Ampache':
         if amp_results is None:
             logger.error("Failed to get songs from Ampache. 'advanced_search' returned None.")
             break
+        elif amp_results is False:
+            logger.error("Failed to get songs from Ampache. 'advanced_search' returned False.")
+            break
         logger.debug('Run {}: {} songs'.format(_offset+1,len(amp_results)))
         if(len(amp_results)>1):
             songs_from = {}
