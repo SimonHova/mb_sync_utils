@@ -176,6 +176,10 @@ _rating=""
 
 if args.sync_from == 'Ampache':
     amp_results = ampacheConnection.advanced_search(rules, object_type='artist')
+
+    if amp_results is None:
+        logger.error("Failed to get artists from Ampache. 'advanced_search' returned None.")
+        amp_results = []
     
     for artist in amp_results:
         if artist.tag == 'artist':
@@ -252,6 +256,10 @@ _rating=""
 
 if args.sync_from == 'Ampache':
     amp_results = ampacheConnection.advanced_search(rules, object_type='album')
+
+    if amp_results is None:
+        logger.error("Failed to get albums from Ampache. 'advanced_search' returned None.")
+        amp_results = []
 
     for album in amp_results[:100]:
         if album.tag == 'album':
@@ -350,6 +358,9 @@ _chunk = 0
 if args.sync_from == 'Ampache':
     while(True):
         amp_results = ampacheConnection.advanced_search(rules, object_type='song', limit=_limit, offset=_offset * _limit)
+        if amp_results is None:
+            logger.error("Failed to get songs from Ampache. 'advanced_search' returned None.")
+            break
         logger.debug('Run {}: {} songs'.format(_offset+1,len(amp_results)))
         if(len(amp_results)>1):
             songs_from = {}
