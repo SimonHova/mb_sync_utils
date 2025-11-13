@@ -60,9 +60,9 @@ def _get_MB():
     musicbrainzngs.auth(args.MB_ID, args.MB_PW)
     
     musicbrainzngs.set_useragent(
-        config['DEFAULT']['app_name'],
-        config['DEFAULT']['app_version'],
-        config['DEFAULT']['app_maintainer']
+        config['DEFAULT']['App Name'],
+        config['DEFAULT']['App Version'],
+        config['DEFAULT']['App Maintainer']
     )
     
     musicbrainzngs.set_rate_limit(limit_or_interval=1.0, new_requests=1)
@@ -550,3 +550,4 @@ elif args.sync_to == 'Kodi':
 #     print("Submitting ratings for MBID:" + song)
 
 #     musicbrainzngs.submit_ratings( recording_ratings={ song:rating } )
+
