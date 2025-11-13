@@ -128,29 +128,29 @@ if args.config:
     config.read(args.config)
 
 if not args.MB_ID:
-    args.MB_ID = config['musicbrainz']['username']
+    args.MB_ID = config['MusicBrainz']['username']
 if not args.MB_PW:
-    args.MB_PW = config['musicbrainz']['password']
+    args.MB_PW = config['MusicBrainz']['password']
 
 if not args.Amp_URL:
-    args.Amp_URL = config['ampache']['url']
+    args.Amp_URL = config['Ampache']['URL']
 if not args.Amp_API:
-    args.Amp_API = config['ampache']['api']
+    args.Amp_API = config['Ampache']['API']
 if not args.Amp_ID:
-    args.Amp_ID = config['ampache']['user']
+    args.Amp_ID = config['Ampache']['user']
 
 if not args.Kodi_method:
-    args.Kodi_method = config['kodi']['method']
+    args.Kodi_method = config['Kodi']['Method']
 if not args.Kodi_host:
-    args.Kodi_host = config['kodi']['host']
+    args.Kodi_host = config['Kodi']['host']
 if not args.Kodi_port:
-    args.Kodi_port = int(config['kodi']['port'])
+    args.Kodi_port = int(config['Kodi']['port'])
 if not args.Kodi_db:
-    args.Kodi_db = config['kodi']['database']
+    args.Kodi_db = config['Kodi']['database']
 if not args.Kodi_user:
-    args.Kodi_user = config['kodi']['user']
+    args.Kodi_user = config['Kodi']['user']
 if not args.Kodi_pass:
-    args.Kodi_pass = config['kodi']['password']
+    args.Kodi_pass = config['Kodi']['pass']
 
 if args.verbose:
     logger.setLevel(level=logging.DEBUG)
@@ -548,4 +548,5 @@ elif args.sync_to == 'Kodi':
 
 # for song,rating in songs_from.items():
 #     print("Submitting ratings for MBID:" + song)
+
 #     musicbrainzngs.submit_ratings( recording_ratings={ song:rating } )
