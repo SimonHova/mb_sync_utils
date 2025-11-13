@@ -1,6 +1,7 @@
 from configparser import RawConfigParser
 import argparse
 import logging
+import time
 
 import musicbrainzngs
 
@@ -9,7 +10,7 @@ import ampache
 import mariadb
 
 from bs4 import BeautifulSoup
-from requests import get as r_get
+from requests import get as r_get, exceptions as r_exceptions
 
 def ampRating_to_mbRating( _rating ):
     return int(_rating) * 20
@@ -198,7 +199,23 @@ elif args.sync_from == 'MusicBrainz':
     mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/artist'.format(args.MB_ID)
     next_mb_ratings_link = ''
     while mb_ratings_link:
-        r = r_get(mb_ratings_link)
+        r = None
+        for i in range(3):
+            try:
+                r = r_get(mb_ratings_link)
+                r.raise_for_status()
+                break
+            except r_exceptions.RequestException as e:
+                logger.warning(f"Failed to fetch ratings from MusicBrainz (attempt {i+1}/3): {e}")
+                if i < 2:
+                    time.sleep(5)
+                else:
+                    logger.error("Could not fetch ratings from MusicBrainz. Giving up.")
+                    mb_ratings_link = ''
+        
+        if not r or not mb_ratings_link:
+            break
+
         soup = BeautifulSoup(r.text, 'html.parser')
         for list in soup.find_all('li'):
             for link in list.find_all('a'):
@@ -277,7 +294,23 @@ elif args.sync_from == 'MusicBrainz':
     mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/release_group'.format(args.MB_ID)
     next_mb_ratings_link = ''
     while mb_ratings_link:
-        r = r_get(mb_ratings_link)
+        r = None
+        for i in range(3):
+            try:
+                r = r_get(mb_ratings_link)
+                r.raise_for_status()
+                break
+            except r_exceptions.RequestException as e:
+                logger.warning(f"Failed to fetch ratings from MusicBrainz (attempt {i+1}/3): {e}")
+                if i < 2:
+                    time.sleep(5)
+                else:
+                    logger.error("Could not fetch ratings from MusicBrainz. Giving up.")
+                    mb_ratings_link = ''
+        
+        if not r or not mb_ratings_link:
+            break
+
         soup = BeautifulSoup(r.text, 'html.parser')
         for list in soup.find_all('li'):
             for link in list.find_all('a'):
@@ -427,7 +460,23 @@ elif args.sync_from == 'MusicBrainz':
     mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/recording'.format(args.MB_ID)
     next_mb_ratings_link = ''
     while mb_ratings_link:
-        r = r_get(mb_ratings_link)
+        r = None
+        for i in range(3):
+            try:
+                r = r_get(mb_ratings_link)
+                r.raise_for_status()
+                break
+            except r_exceptions.RequestException as e:
+                logger.warning(f"Failed to fetch ratings from MusicBrainz (attempt {i+1}/3): {e}")
+                if i < 2:
+                    time.sleep(5)
+                else:
+                    logger.error("Could not fetch ratings from MusicBrainz. Giving up.")
+                    mb_ratings_link = ''
+
+        if not r or not mb_ratings_link:
+            break
+
         soup = BeautifulSoup(r.text, 'html.parser')
         for list in soup.find_all('li'):
             for link in list.find_all('a'):
