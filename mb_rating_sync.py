@@ -72,16 +72,22 @@ def get_releases_from_rg(rg_mbid):
         mb_release_list = rg_data.get('release-list', [])
     
         found_amp_ids = []
+        
         for rel_dict in mb_release_list:
-            # rel_dict is the integer-indexed item in the list
-            # rel_dict['id'] is the string-indexed value we want
+            # 1. Get the ID from the MB response
             rel_id = rel_dict.get('id')
             if rel_id:
-                # Now search Ampache for this specific Release MBID
                 a_albums = get_release_by_id(rel_id)
-                if a_albums is not None and len(a_albums) > 0:
-                    found_amp_ids.extend([a.id for a in a_albums])
-                    
+                
+                # 2. Extract IDs from the Ampache response
+                if a_albums is not None:
+                    for a in a_albums:
+                        # If it's an XML object, we use .get('id') or .id depending on the lib
+                        # This check handles both dictionaries and XML objects
+                        album_id = getattr(a, 'id', None) or a.get('id')
+                        if album_id:
+                            found_amp_ids.append(album_id)
+            
         return list(set(found_amp_ids))
     
     except Exception as e:
