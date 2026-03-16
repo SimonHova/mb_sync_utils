@@ -61,31 +61,32 @@ def get_releases_from_rg(rg_mbid):
     # If Ampache doesn't have the RG ID indexed, we find the specific 
     # Release IDs from MB and search Ampache for those instead.
     logger.debug(f"Falling back to MB API for RG: {rg_mbid}")
-# Change this part of your function:
-try:
-    result = musicbrainzngs.get_release_group_by_id(rg_mbid, includes=["releases"])
+
+    # Change this part of your function:
+    try:
+        result = musicbrainzngs.get_release_group_by_id(rg_mbid, includes=["releases"])
+        
+        # MusicBrainz returns a dict where 'release-group' contains 'release-list'
+        # 'release-list' is a LIST of dictionaries
+        rg_data = result.get('release-group', {})
+        mb_release_list = rg_data.get('release-list', [])
     
-    # MusicBrainz returns a dict where 'release-group' contains 'release-list'
-    # 'release-list' is a LIST of dictionaries
-    rg_data = result.get('release-group', {})
-    mb_release_list = rg_data.get('release-list', [])
-
-    found_amp_ids = []
-    for rel_dict in mb_release_list:
-        # rel_dict is the integer-indexed item in the list
-        # rel_dict['id'] is the string-indexed value we want
-        rel_id = rel_dict.get('id')
-        if rel_id:
-            # Now search Ampache for this specific Release MBID
-            a_albums = get_release_by_id(rel_id)
-            if a_albums:
-                found_amp_ids.extend([a.id for a in a_albums])
-                
-    return list(set(found_amp_ids))
-
-except Exception as e:
-    logger.error(f"Failed to resolve RG {rg_mbid}: {e}")
-    return []
+        found_amp_ids = []
+        for rel_dict in mb_release_list:
+            # rel_dict is the integer-indexed item in the list
+            # rel_dict['id'] is the string-indexed value we want
+            rel_id = rel_dict.get('id')
+            if rel_id:
+                # Now search Ampache for this specific Release MBID
+                a_albums = get_release_by_id(rel_id)
+                if a_albums:
+                    found_amp_ids.extend([a.id for a in a_albums])
+                    
+        return list(set(found_amp_ids))
+    
+    except Exception as e:
+        logger.error(f"Failed to resolve RG {rg_mbid}: {e}")
+        return []
 
 def get_release_group_by_release_id( _id ):
     logger.debug("Asking MB for release ID " + _id)
