@@ -74,15 +74,23 @@ def get_mb_ratings(entity_type, username):
         all_links = soup.find_all('a', href=True)
         logger.debug(f"Scanning {len(all_links)} links for UUIDs...")
 
-        for a in all_links:
-            href = a['href']
-            # UUID check (8-4-4-4-12 pattern)
-            parts = href.strip('/').split('/')
-            mbid = parts[-1]
+	for a in all_links:
+            # RESET HERE: Ensure we start fresh for every link
+            mbid = "" 
             
-            if len(mbid) == 36 and mbid.count('-') == 4:
-                # We found an MBID! Now look for the rating NEAR it.
-                # Usually, it's in a <span> in the same parent container (the <td> or <li>)
+            href = a['href']
+            parts = href.strip('/').split('/')
+            potential_mbid = parts[-1]
+            
+            if len(potential_mbid) == 36 and potential_mbid.count('-') == 4:
+                # We found a UUID. Now, let's make sure it's the right TYPE.
+                # If we are looking for 'recording', don't grab the 'artist' link.
+                if f"/{entity_type}/" not in href:
+                    continue
+                
+                mbid = potential_mbid
+                
+                # Now look for the rating relative to THIS specific link
                 parent = a.find_parent(['td', 'tr', 'li'])
                 if parent:
                     rating_span = parent.select_one('span.current-rating')
@@ -90,7 +98,7 @@ def get_mb_ratings(entity_type, username):
                         rating_val = rating_span.get_text(strip=True)
                         if rating_val and mbid not in results:
                             results[mbid] = rating_val
-                            logger.debug(f"Captured: {mbid} -> {rating_val}")
+                            logger.debug(f"Captured {entity_type}: {mbid} -> {rating_val}")
 
         # Pagination
         next_link = soup.find('a', string=lambda t: t and 'Next' in t)
