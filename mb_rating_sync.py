@@ -46,6 +46,58 @@ def get_releases_by_release_group_id( _id ):
     
     return _release_ids
 
+def get_mb_artist_ratings(username):
+    """
+    Fetches all artist ratings for a given user via the MB API.
+    """
+    artists_from = {}
+    limit = 100
+    offset = 0
+    
+    logger.info(f"Fetching MusicBrainz artist ratings for user: {username}")
+
+    # Set the User-Agent properly for the library
+    musicbrainzngs.set_useragent("MB-Ampache-Sync", "1.0", "https://github.com/SimonHova/mb_sync_utils")
+
+    while True:
+        try:
+            # Note: This requires the ratings to be PUBLIC on the MB profile
+            # or the library to be authenticated.
+            result = musicbrainzngs.get_user_artist_ratings(username, limit=limit, offset=offset)
+            
+            # The API returns a 'rating-list' and an 'artist-count'
+            rating_list = result.get('artist-rating-list', [])
+            total_count = int(result.get('artist-count', 0))
+            
+            if not rating_list:
+                break
+
+            for item in rating_list:
+                mbid = item['id']
+                # MB API returns ratings on a scale of 0-100 (integer)
+                # Your existing code uses '_rating', usually a string from HTML
+                rating = item.get('rating', 0)
+                artists_from[mbid] = rating
+
+            logger.debug(f"Retrieved {len(artists_from)} / {total_count} artists...")
+
+            # Check if we've fetched everything
+            if len(artists_from) >= total_count:
+                break
+                
+            offset += limit
+            # MusicBrainz API rate limit is 1 request per second
+            time.sleep(1) 
+
+        except musicbrainzngs.AuthenticationError:
+            logger.error("MB ratings are private. Authentication required.")
+            break
+        except Exception as e:
+            logger.error(f"Error fetching MB ratings: {e}")
+            break
+
+    return artists_from
+
 def _get_kodiConnection():
     _kodiConnection = mariadb.connect(
             user=args.Kodi_user,
@@ -196,46 +248,7 @@ elif args.sync_from == 'Kodi':
     # Kodi does not currently support artist ratings. Need to return a blank array.
     artists_from = {}
 elif args.sync_from == 'MusicBrainz':
-    mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/artist'.format(args.MB_ID)
-    next_mb_ratings_link = ''
-    while mb_ratings_link:
-        r = None
-        for i in range(3):
-            try:
-                r = r_get(mb_ratings_link)
-                r.raise_for_status()
-                break
-            except r_exceptions.RequestException as e:
-                logger.warning(f"Failed to fetch ratings from MusicBrainz (attempt {i+1}/3): {e}")
-                if i < 2:
-                    time.sleep(5)
-                else:
-                    logger.error("Could not fetch ratings from MusicBrainz. Giving up.")
-                    mb_ratings_link = ''
-        
-        if not r or not mb_ratings_link:
-            break
-
-        soup = BeautifulSoup(r.text, 'html.parser')
-        for list in soup.find_all('li'):
-            for link in list.find_all('a'):
-                if "/artist/" in link.get('href'):
-                    _mbid = (link.get('href')[8:])
-                elif link.contents[0] == 'Next':
-                    next_mb_ratings_link=link.get('href')
-            for span in list.find_all('span'):
-                for subspan in span.find_all('span'):
-                    if subspan.get('class')[0] == "current-rating":
-                        _rating = subspan.contents[0]
-            artists_from.update( { _mbid : _rating } )
-            logger.debug("Got " + str(len(artists_from)) + " artists to sync from")
-            
-            _mbid=""
-            _rating=""
-        if mb_ratings_link != next_mb_ratings_link:
-            mb_ratings_link = next_mb_ratings_link
-        else:
-            mb_ratings_link = ''
+    artists_from = get_mb_artist_ratings(args.MB_ID)
 
 if args.sync_to == 'Ampache':
     for artist,rating in artists_from.items():
