@@ -24,7 +24,7 @@ def mbRating_to_KodiRating( _rating ):
 def ampRating_to_KodiRating( _rating ):
     return int(_rating) * 2
 
-def get_releases_from_rg(amp, rg_mbid):
+def get_releases_from_rg(rg_mbid):
     """
     Finds Ampache album IDs associated with a Release Group MBID.
     Tries Ampache metadata first, falls back to MB API if necessary.
@@ -34,7 +34,7 @@ def get_releases_from_rg(amp, rg_mbid):
     logger.debug(f"Searching Ampache for Release Group MBID: {rg_mbid}")
     try:
         # Check if your Ampache API library supports filtering by mbid_group
-        amp_albums = amp.get_albums(filter={'mbid_group': rg_mbid})
+        amp_albums = ampacheConnection.get_albums(filter={'mbid_group': rg_mbid})
         if amp_albums:
             return [album.id for album in amp_albums]
     except Exception as e:
@@ -52,7 +52,7 @@ def get_releases_from_rg(amp, rg_mbid):
         found_amp_ids = []
         for rel_id in mb_release_ids:
             # Search Ampache for the specific Release MBID
-            a_album = amp.get_albums(filter={'mbid': rel_id})
+            a_album = ampacheConnection.get_albums(filter={'mbid': rel_id})
             if a_album:
                 found_amp_ids.extend([a.id for a in a_album])
         
@@ -362,7 +362,7 @@ elif args.sync_from == 'MusicBrainz':
 
 if args.sync_to == 'Ampache':
 	for rg_mbid, rating in albums_from.items():
-	    amp_album_ids = get_releases_from_rg(amp, rg_mbid)
+	    amp_album_ids = get_releases_from_rg(rg_mbid)
 	    
 	    if not amp_album_ids:
 	        # Add to that skipped_report we talked about!
@@ -371,7 +371,7 @@ if args.sync_to == 'Ampache':
 	        
 	    for a_id in amp_album_ids:
 	        # Apply the rating to the Ampache Album ID
-	        sync_rating_to_ampache(amp, 'album', a_id, rating)
+	        sync_rating_to_ampache('album', a_id, rating)
 elif args.sync_to == 'Kodi':
     for album,rating in albums_from.items():
         if album is not None and album != "":  # skip null results
