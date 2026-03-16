@@ -63,7 +63,7 @@ def get_mb_artist_ratings(username):
         try:
             # Note: This requires the ratings to be PUBLIC on the MB profile
             # or the library to be authenticated.
-            result = musicbrainzngs.get_user_artist_ratings(username, limit=limit, offset=offset)
+            result = musicbrainzngs.get_artist_ratings(user=username, limit=limit, offset=offset)
             
             # The API returns a 'rating-list' and an 'artist-count'
             rating_list = result.get('artist-rating-list', [])
@@ -111,7 +111,7 @@ def get_mb_release_ratings(username):
     while True:
         try:
             # Most users rate the 'Release Group' (the album entity)
-            result = musicbrainzngs.get_user_release_group_ratings(username, limit=limit, offset=offset)
+            result = musicbrainzngs.get_release_group_ratings(user=username, limit=limit, offset=offset)
             
             rating_list = result.get('release-group-rating-list', [])
             total_count = int(result.get('release-group-count', 0))
