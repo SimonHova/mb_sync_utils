@@ -52,11 +52,11 @@ def get_releases_from_rg(rg_mbid):
         found_amp_ids = []
         for rel_id in mb_release_ids:
 			# Search Ampache for the specific Release MBID
-			a_album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
-			if a_album:
+			__album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
+			if __album:
 				found_amp_ids.extend([a.id for a in a_album])
-        
-        return list(set(found_amp_ids)) # De-duplicate
+			
+			return list(set(found_amp_ids)) # De-duplicate
         
     except Exception as e:
         logger.error(f"Failed to resolve RG {rg_mbid} via MusicBrainz: {e}")
