@@ -99,7 +99,7 @@ def get_mb_ratings(entity_type, username):
                         if rating_val and mbid not in results:
                             results[mbid] = rating_val
                             logger.debug(f"Captured {entity_type}: {mbid} -> {rating_val}")
-
+							
         # Pagination
         next_link = soup.find('a', string=lambda t: t and 'Next' in t)
         if next_link and next_link.get('href'):
