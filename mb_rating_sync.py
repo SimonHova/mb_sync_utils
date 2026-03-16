@@ -67,12 +67,12 @@ def get_releases_from_rg(rg_mbid):
         mb_release_ids = [rel['id'] for rel in result['release-group'].get('release-list', [])]
         
         found_amp_ids = []
-		for rel_id in mb_release_ids:
-			# Search Ampache for the specific Release MBID
-			__album = get_release_by_id(rel_id)
-			if __album:
-				found_amp_ids.extend([a.id for a in a_album])
-		return list(set(found_amp_ids)) # De-duplicate
+        for rel_id in mb_release_ids:
+            # Search Ampache for the specific Release MBID
+            __album = get_release_by_id(rel_id)
+            if __album:
+                found_amp_ids.extend([a.id for a in a_album])
+        return list(set(found_amp_ids)) # De-duplicate
         
     except Exception as e:
         logger.error(f"Failed to resolve RG {rg_mbid} via MusicBrainz: {e}")
@@ -153,7 +153,7 @@ def get_mb_ratings(entity_type, username):
                         if rating_val and mbid not in results:
                             results[mbid] = rating_val
                             logger.debug(f"Captured {entity_type}: {mbid} -> {rating_val}")
-							
+                            
         # Pagination
         next_link = soup.find('a', string=lambda t: t and 'Next' in t)
         if next_link and next_link.get('href'):
@@ -377,17 +377,17 @@ elif args.sync_from == 'MusicBrainz':
     albums_from = get_mb_ratings('release-group', args.MB_ID)
 
 if args.sync_to == 'Ampache':
-	for rg_mbid, rating in albums_from.items():
-	    amp_album_ids = get_releases_from_rg(rg_mbid)
-	    
-	    if not amp_album_ids:
-	        # Add to that skipped_report we talked about!
-	        # skipped_report['release-group'].append(f"https://musicbrainz.org/release-group/{rg_mbid}")
-	        continue
-	        
-	    for a_id in amp_album_ids:
-	        # Apply the rating to the Ampache Album ID
-	        sync_rating_to_ampache('album', a_id, rating)
+    for rg_mbid, rating in albums_from.items():
+        amp_album_ids = get_releases_from_rg(rg_mbid)
+        
+        if not amp_album_ids:
+            # Add to that skipped_report we talked about!
+            # skipped_report['release-group'].append(f"https://musicbrainz.org/release-group/{rg_mbid}")
+            continue
+            
+        for a_id in amp_album_ids:
+            # Apply the rating to the Ampache Album ID
+            sync_rating_to_ampache('album', a_id, rating)
 elif args.sync_to == 'Kodi':
     for album,rating in albums_from.items():
         if album is not None and album != "":  # skip null results
