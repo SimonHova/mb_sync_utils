@@ -48,60 +48,68 @@ def get_releases_by_release_group_id( _id ):
 
 def get_mb_ratings(entity_type, username):
     results = {}
-    # Ensure trailing slash to avoid 400 errors
-    url = f'https://musicbrainz.org/user/{username}/ratings/{entity_type}/'
+    
+    # FIX: MusicBrainz uses underscores for release_group in the URL
+    url_entity = entity_type.replace('-', '_')
+    url = f'https://musicbrainz.org/user/{username}/ratings/{url_entity}'
     
     while url:
-        logger.info(f"Scraping {entity_type} ratings from: {url}")
+        logger.info(f"Scraping from: {url}")
         try:
-            r = r_get(url, timeout=10)
+            # We must use a common User-Agent to avoid being blocked
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) sessions-sync/1.0'}
+            r = r_get(url, headers=headers, timeout=10)
             r.raise_for_status()
         except Exception as e:
-            logger.error(f"Failed to fetch {url}: {e}")
+            logger.error(f"Request failed: {e}")
             break
 
         soup = BeautifulSoup(r.text, 'html.parser')
-        rows = soup.select('table.tbl tr')
-        logger.debug(f"Found {len(rows)} table rows (including header)")
+        
+        # Look for the container that actually holds the ratings
+        # If 'table.tbl' failed, let's just find all <tr> tags
+        rows = soup.find_all('tr')
+        logger.debug(f"Found {len(rows)} potential rows")
 
         for row in rows:
-            # Look for the link that contains the UUID
-            link = row.find('a', href=True)
-            if not link:
-                continue
-
-            href = link['href']
-            # Improved UUID extraction: looks for a 36-char UUID string
-            # This is more robust than matching the entity_type exactly
-            parts = href.split('/')
-            mbid = parts[-1] if len(parts[-1]) == 36 else ""
+            # 1. Find the MBID link
+            # We look for a link that has a UUID-looking string at the end
+            mbid = ""
+            for a in row.find_all('a', href=True):
+                href = a['href']
+                # Match /artist/UUID or /release-group/UUID
+                # Using a split and check for the 36-char UUID
+                parts = href.strip('/').split('/')
+                if len(parts) >= 2:
+                    potential_uuid = parts[-1]
+                    if len(potential_uuid) == 36 and potential_uuid.count('-') == 4:
+                        mbid = potential_uuid
+                        break
             
-            # Find the rating
-            rating_span = row.select_one('span.current-rating')
-            rating_val = rating_span.get_text(strip=True) if rating_span else None
+            # 2. Find the rating
+            # MusicBrainz sometimes uses 'star-rating' or 'current-rating' classes
+            rating_span = row.find('span', class_='current-rating')
+            if not rating_span:
+                # Fallback: look for any span with 'rating' in the class
+                rating_span = row.find('span', class_=lambda x: x and 'rating' in x)
 
-            if mbid and rating_val:
-                results[mbid] = rating_val
-                # RE-ADDED: The missing detail log
-                logger.debug(f"Found: {mbid} -> Rating: {rating_val}")
-            else:
-                # This will tell us if we found a row but failed to parse it
-                if not mbid:
-                    logger.debug(f"Row skipped: Could not extract MBID from {href}")
-                if not rating_val:
-                    logger.debug(f"Row skipped: No rating found for {mbid}")
+            if mbid and rating_span:
+                rating_val = rating_span.get_text(strip=True)
+                if rating_val:
+                    results[mbid] = rating_val
+                    logger.debug(f"Captured: {mbid} -> {rating_val}")
 
-        # Pagination check
-        next_link = soup.find('a', attrs={'rel': 'next'})
+        # 3. Robust Pagination
+        # Look for "Next" by text since rel='next' might be missing in some views
+        next_link = soup.find('a', string=lambda t: t and 'Next' in t)
         if next_link and next_link.get('href'):
-            next_url = next_link.get('href')
-            url = f"https://musicbrainz.org{next_url}" if next_url.startswith('/') else next_url
+            next_path = next_link['href']
+            url = f"https://musicbrainz.org{next_path}" if next_path.startswith('/') else next_path
         else:
             url = None
 
         time.sleep(2)
 
-    logger.info(f"Successfully scraped {len(results)} {entity_type} ratings total.")
     return results
 
 def _get_kodiConnection():
