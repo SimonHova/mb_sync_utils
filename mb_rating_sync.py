@@ -46,99 +46,65 @@ def get_releases_by_release_group_id( _id ):
     
     return _release_ids
 
-def get_mb_artist_ratings(username):
+def get_mb_ratings_api(entity_type, username):
     """
-    Fetches all artist ratings for a given user via the MB API.
+    entity_type should be 'artist' or 'release-group'
     """
-    artists_from = {}
-    limit = 100
+    ratings_dict = {}
     offset = 0
+    limit = 100
     
-    logger.info(f"Fetching MusicBrainz artist ratings for user: {username}")
-
-    # Set the User-Agent properly for the library
-    musicbrainzngs.set_useragent("MB-Ampache-Sync", "1.0", "https://github.com/SimonHova/mb_sync_utils")
+    # MusicBrainz API URL for user ratings
+    # e.g., https://musicbrainz.org/ws/2/artist/?user=SimonHova&inc=user-ratings
+    base_url = f"https://musicbrainz.org/ws/2/{entity_type}/"
+    
+    logger.info(f"Fetching {entity_type} ratings via WS API for: {username}")
 
     while True:
+        params = {
+            'user': username,
+            'inc': 'user-ratings',
+            'limit': limit,
+            'offset': offset,
+            'fmt': 'json' # We want JSON because it's way easier than XML
+        }
+        
+        headers = {'User-Agent': 'MB-Ampache-Sync/1.0 ( your-email@example.com )'}
+        
         try:
-            # Note: This requires the ratings to be PUBLIC on the MB profile
-            # or the library to be authenticated.
-            result = musicbrainzngs.get_artist_ratings(user=username, limit=limit, offset=offset)
+            r = r_get(base_url, params=params, headers=headers, timeout=10)
+            r.raise_for_status()
+            data = r.json()
             
-            # The API returns a 'rating-list' and an 'artist-count'
-            rating_list = result.get('artist-rating-list', [])
-            total_count = int(result.get('artist-count', 0))
-            
-            if not rating_list:
+            # The key in the JSON changes based on entity type
+            # e.g., 'artists' or 'release-groups'
+            key = entity_type + 's' if not entity_type.endswith('s') else entity_type
+            items = data.get(key, [])
+            total_count = data.get(f"{entity_type}-count", 0)
+
+            if not items:
                 break
 
-            for item in rating_list:
+            for item in items:
                 mbid = item['id']
-                # MB API returns ratings on a scale of 0-100 (integer)
-                # Your existing code uses '_rating', usually a string from HTML
-                rating = item.get('rating', 0)
-                artists_from[mbid] = rating
+                # The rating is nested inside the 'user-rating' object
+                rating = item.get('user-rating', {}).get('rating', 0)
+                if rating > 0:
+                    ratings_dict[mbid] = rating
 
-            logger.debug(f"Retrieved {len(artists_from)} / {total_count} artists...")
+            logger.debug(f"Got {len(ratings_dict)} {entity_type} ratings...")
 
-            # Check if we've fetched everything
-            if len(artists_from) >= total_count:
+            if len(ratings_dict) >= total_count or len(items) < limit:
                 break
                 
             offset += limit
-            # MusicBrainz API rate limit is 1 request per second
-            time.sleep(1) 
-
-        except musicbrainzngs.AuthenticationError:
-            logger.error("MB ratings are private. Authentication required.")
-            break
-        except Exception as e:
-            logger.error(f"Error fetching MB ratings: {e}")
-            break
-
-    return artists_from
-
-def get_mb_release_ratings(username):
-    """
-    Fetches all album (release-group) ratings for a given user.
-    """
-    releases_from = {}
-    limit = 100
-    offset = 0
-
-    logger.info(f"Fetching MusicBrainz album ratings for user: {username}")
-
-    while True:
-        try:
-            # Most users rate the 'Release Group' (the album entity)
-            result = musicbrainzngs.get_release_group_ratings(user=username, limit=limit, offset=offset)
-            
-            rating_list = result.get('release-group-rating-list', [])
-            total_count = int(result.get('release-group-count', 0))
-
-            if not rating_list:
-                break
-
-            for item in rating_list:
-                # The ID here is the Release Group MBID
-                mbid = item['id']
-                # API returns 0-100; your script handles the math later
-                rating = item.get('rating', 0)
-                releases_from[mbid] = rating
-
-            logger.debug(f"Retrieved {len(releases_from)} / {total_count} albums...")
-
-            if len(releases_from) >= total_count:
-                break
-
-            offset += limit
-            time.sleep(1) # Respect the 1s rate limit
+            time.sleep(1) # Be nice to their servers
 
         except Exception as e:
-            logger.error(f"Error fetching MB album ratings: {e}")
+            logger.error(f"API Error fetching {entity_type}: {e}")
             break
 
-    return releases_from
+    return ratings_dict
 
 def _get_kodiConnection():
     _kodiConnection = mariadb.connect(
@@ -290,7 +256,7 @@ elif args.sync_from == 'Kodi':
     # Kodi does not currently support artist ratings. Need to return a blank array.
     artists_from = {}
 elif args.sync_from == 'MusicBrainz':
-    artists_from = get_mb_artist_ratings(args.MB_ID)
+    artists_from = get_mb_ratings_api('artist', args.MB_ID)
 
 if args.sync_to == 'Ampache':
     for artist,rating in artists_from.items():
@@ -346,7 +312,7 @@ if args.sync_from == 'Ampache':
 elif args.sync_from == 'Kodi':
     pass
 elif args.sync_from == 'MusicBrainz':
-    albums_from = get_mb_release_ratings(args.MB_ID)
+    albums_from = get_mb_ratings_api('album', args.MB_ID)
 
 if args.sync_to == 'Ampache':
     for album,rating in albums_from.items():
@@ -474,49 +440,7 @@ if args.sync_from == 'Ampache':
                 artist = artist_elem.text if artist_elem is not None else "Unknown Artist"
                 logger.warning(f'Song ID not found for song {title} by {artist}')
 elif args.sync_from == 'MusicBrainz':
-    mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/recording'.format(args.MB_ID)
-    next_mb_ratings_link = ''
-    while mb_ratings_link:
-        r = None
-        for i in range(3):
-            try:
-                r = r_get(mb_ratings_link)
-                r.raise_for_status()
-                break
-            except r_exceptions.RequestException as e:
-                logger.warning(f"Failed to fetch ratings from MusicBrainz (attempt {i+1}/3): {e}")
-                if i < 2:
-                    time.sleep(5)
-                else:
-                    logger.error("Could not fetch ratings from MusicBrainz. Giving up.")
-                    mb_ratings_link = ''
-
-        if not r or not mb_ratings_link:
-            break
-
-        soup = BeautifulSoup(r.text, 'html.parser')
-        for list in soup.find_all('li'):
-            for link in list.find_all('a'):
-                if "/recording/" in link.get('href'):
-                    _mbid = (link.get('href')[11:])
-                elif link.contents[0] == 'Next':
-                    next_mb_ratings_link=link.get('href')
-            for span in list.find_all('span'):
-                for subspan in span.find_all('span'):
-                    if subspan.get('class')[0] == "current-rating":
-                        _rating = subspan.contents[0]
-            songs_from.update( { _mbid : _rating } )
-            # logger.debug("Got " + str(len(songs_from)) + " songs")
-            _mbid=""
-            _rating=""
-        if mb_ratings_link != next_mb_ratings_link:
-            mb_ratings_link = next_mb_ratings_link
-        else:
-            mb_ratings_link = ''
-    
-    logger.debug("Got " + str(len(songs_from)) + " songs from MB")
-elif args.sync_from == 'Kodi':
-    pass
+    songs_from = get_mb_ratings_api('song', args.MB_ID)
 
 if args.sync_to == 'Ampache':
     for song,rating in songs_from.items():
