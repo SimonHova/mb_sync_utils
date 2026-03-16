@@ -34,7 +34,7 @@ def get_release_by_id(mb_id):
         search_filter = [['mbid', 4, mb_id]]
         results = ampacheConnection.advanced_search(search_filter, object_type='album')
         
-        if results and len(results) > 0:
+        if results is not None and len(results) > 0:
             return results
     except Exception as e:
         logger.error(f"Ampache search failed for MBID {mb_id}: {e}")
@@ -79,7 +79,7 @@ def get_releases_from_rg(rg_mbid):
             if rel_id:
                 # Now search Ampache for this specific Release MBID
                 a_albums = get_release_by_id(rel_id)
-                if a_albums:
+                if a_albums is not None and len(a_albums) > 0:
                     found_amp_ids.extend([a.id for a in a_albums])
                     
         return list(set(found_amp_ids))
