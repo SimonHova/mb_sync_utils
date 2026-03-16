@@ -63,7 +63,7 @@ def get_releases_from_rg(rg_mbid):
     logger.debug(f"Falling back to MB API for RG: {rg_mbid}")
     try:
         # As discussed, include 'releases' to get the mapping in one trip
-        result = get_releases_by_release_group_id( album )
+        result = get_releases_by_release_group_id( rg_mbid )
         mb_release_ids = [rel['id'] for rel in result['release-group'].get('release-list', [])]
         
         found_amp_ids = []
