@@ -47,65 +47,61 @@ def get_releases_by_release_group_id( _id ):
     return _release_ids
 
 def get_mb_ratings(entity_type, username):
-    """
-    entity_type: 'artist', 'release-group', or 'recording'
-    """
     results = {}
-    # Use a session for better performance
-    session = r_get.__self__ if hasattr(r_get, '__self__') else None
-    
-    url = f'https://musicbrainz.org/user/{username}/ratings/{entity_type}'
+    # Ensure trailing slash to avoid 400 errors
+    url = f'https://musicbrainz.org/user/{username}/ratings/{entity_type}/'
     
     while url:
         logger.info(f"Scraping {entity_type} ratings from: {url}")
         try:
-            # Added a 10s timeout to prevent the 'hanging' you saw
-            r = r_get(url, timeout=10) 
+            r = r_get(url, timeout=10)
             r.raise_for_status()
         except Exception as e:
             logger.error(f"Failed to fetch {url}: {e}")
             break
 
         soup = BeautifulSoup(r.text, 'html.parser')
-        
-        # Find the table or list containing ratings
-        # MB uses a table with class 'tbl' for ratings
-        rows = soup.select('table.tbl tr') 
-        
-        for row in rows:
-            links = row.find_all('a', href=True)
-            if not links:
-                continue
-                
-            mbid = ""
-            for link in links:
-                href = link['href']
-                # Extracts the UUID from /artist/UUID or /release-group/UUID
-                if f"/{entity_type}/" in href:
-                    mbid = href.split('/')[-1]
-                    break
-            
-            # Find the rating in this row
-            rating_span = row.select_one('span.current-rating')
-            if mbid and rating_span:
-                rating_val = rating_span.get_text(strip=True)
-                if rating_val:
-                    results[mbid] = rating_val
+        rows = soup.select('table.tbl tr')
+        logger.debug(f"Found {len(rows)} table rows (including header)")
 
-        # Find the 'Next' page link more robustly
+        for row in rows:
+            # Look for the link that contains the UUID
+            link = row.find('a', href=True)
+            if not link:
+                continue
+
+            href = link['href']
+            # Improved UUID extraction: looks for a 36-char UUID string
+            # This is more robust than matching the entity_type exactly
+            parts = href.split('/')
+            mbid = parts[-1] if len(parts[-1]) == 36 else ""
+            
+            # Find the rating
+            rating_span = row.select_one('span.current-rating')
+            rating_val = rating_span.get_text(strip=True) if rating_span else None
+
+            if mbid and rating_val:
+                results[mbid] = rating_val
+                # RE-ADDED: The missing detail log
+                logger.debug(f"Found: {mbid} -> Rating: {rating_val}")
+            else:
+                # This will tell us if we found a row but failed to parse it
+                if not mbid:
+                    logger.debug(f"Row skipped: Could not extract MBID from {href}")
+                if not rating_val:
+                    logger.debug(f"Row skipped: No rating found for {mbid}")
+
+        # Pagination check
         next_link = soup.find('a', attrs={'rel': 'next'})
         if next_link and next_link.get('href'):
             next_url = next_link.get('href')
-            # Handle relative vs absolute URLs
-            if next_url.startswith('/'):
-                url = f"https://musicbrainz.org{next_url}"
-            else:
-                url = next_url
+            url = f"https://musicbrainz.org{next_url}" if next_url.startswith('/') else next_url
         else:
-            url = None # Exit loop
-            
-        time.sleep(2) # Be extra gentle since we're scraping
+            url = None
 
+        time.sleep(2)
+
+    logger.info(f"Successfully scraped {len(results)} {entity_type} ratings total.")
     return results
 
 def _get_kodiConnection():
