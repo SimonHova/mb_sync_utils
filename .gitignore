@@ -3,4 +3,4 @@
 fix_artists/ampache-cookies.txt
 .vscode/
 __pycache__
-.pythonversion
+.python-version
