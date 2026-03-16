@@ -24,6 +24,44 @@ def mbRating_to_KodiRating( _rating ):
 def ampRating_to_KodiRating( _rating ):
     return int(_rating) * 2
 
+def get_releases_from_rg(amp, rg_mbid):
+    """
+    Finds Ampache album IDs associated with a Release Group MBID.
+    Tries Ampache metadata first, falls back to MB API if necessary.
+    """
+    # 1. Ask Ampache first (Instant)
+    # Most modern Ampache installs store the Release Group MBID
+    logger.debug(f"Searching Ampache for Release Group MBID: {rg_mbid}")
+    try:
+        # Check if your Ampache API library supports filtering by mbid_group
+        amp_albums = amp.get_albums(filter={'mbid_group': rg_mbid})
+        if amp_albums:
+            return [album.id for album in amp_albums]
+    except Exception as e:
+        logger.debug(f"Ampache RG search failed or unsupported: {e}")
+
+    # 2. Fallback: Ask MusicBrainz (1s Delay)
+    # If Ampache doesn't have the RG ID indexed, we find the specific 
+    # Release IDs from MB and search Ampache for those instead.
+    logger.debug(f"Falling back to MB API for RG: {rg_mbid}")
+    try:
+        # As discussed, include 'releases' to get the mapping in one trip
+        result = musicbrainzngs.get_release_group_by_id(rg_mbid, includes=["releases"])
+        mb_release_ids = [rel['id'] for rel in result['release-group'].get('release-list', [])]
+        
+        found_amp_ids = []
+        for rel_id in mb_release_ids:
+            # Search Ampache for the specific Release MBID
+            a_album = amp.get_albums(filter={'mbid': rel_id})
+            if a_album:
+                found_amp_ids.extend([a.id for a in a_album])
+        
+        return list(set(found_amp_ids)) # De-duplicate
+        
+    except Exception as e:
+        logger.error(f"Failed to resolve RG {rg_mbid} via MusicBrainz: {e}")
+        return []
+
 def get_release_group_by_release_id( _id ):
     logger.debug("Asking MB for release ID " + _id)
     
@@ -323,38 +361,17 @@ elif args.sync_from == 'MusicBrainz':
     albums_from = get_mb_ratings('release-group', args.MB_ID)
 
 if args.sync_to == 'Ampache':
-    for album,rating in albums_from.items():
-        if album is not None and album != "":  # skip null results
-            _album_rated = False # this is to find out if we have at least one RG in the DB for troubleshooting
-            
-            for __album in get_releases_by_release_group_id( album ):
-                logger.debug('Looking up release MBID {}'.format( __album ))
-                amp_album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
-                if len(amp_album) == 0: # no matches!
-                    logger.debug('Skipping album MBID {}; no matches!'.format(__album))
-                else:
-                    if amp_album.tag == 'album':
-                        try:
-                            amp_rating = amp_album[2].find('rating')
-                        except:
-                            logger.debug('Skipping album MBID {}; no matches!'.format(__album))
-                        else:
-                            if amp_rating.text is None:
-                                logger.debug('album had no rating. Setting rating {} for album MBID {}'.format(rating,__album))
-                                amp_rated = ampacheConnection.rate(object_id=int(amp_album[2].attrib['id']), rating=int(rating), object_type='album')
-                                _album_rated = True
-                                # todo: check amp_rated for error
-                            else:
-                                if rating == amp_rating.text:
-                                    logger.debug('Ratings match for album MBID {}'.format(__album))
-                                    _album_rated = True
-                                else:
-                                    logger.debug('Ampache had rating of {}. Setting rating {} for album MBID {}'.format(amp_rating.text,rating,__album))
-                                    amp_rated = ampacheConnection.rate(object_id=int(amp_album.attrib['id']), rating=int(rating), object_type='album')
-                                    _album_rated = True
-                                    # todo: check amp_rated for error
-            if not _album_rated:
-                logger.warning('Skipping album MBID {}; no matches!'.format( album ))
+	for rg_mbid, rating in albums_from.items():
+	    amp_album_ids = get_releases_from_rg(amp, rg_mbid)
+	    
+	    if not amp_album_ids:
+	        # Add to that skipped_report we talked about!
+	        # skipped_report['release-group'].append(f"https://musicbrainz.org/release-group/{rg_mbid}")
+	        continue
+	        
+	    for a_id in amp_album_ids:
+	        # Apply the rating to the Ampache Album ID
+	        sync_rating_to_ampache(amp, 'album', a_id, rating)
 elif args.sync_to == 'Kodi':
     for album,rating in albums_from.items():
         if album is not None and album != "":  # skip null results
