@@ -48,63 +48,57 @@ def get_releases_by_release_group_id( _id ):
 
 def get_mb_ratings(entity_type, username):
     results = {}
-    
-    # FIX: MusicBrainz uses underscores for release_group in the URL
     url_entity = entity_type.replace('-', '_')
     url = f'https://musicbrainz.org/user/{username}/ratings/{url_entity}'
     
     while url:
         logger.info(f"Scraping from: {url}")
         try:
-            # We must use a common User-Agent to avoid being blocked
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) sessions-sync/1.0'}
+            # Added a more specific User-Agent
+            headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
             r = r_get(url, headers=headers, timeout=10)
             r.raise_for_status()
         except Exception as e:
             logger.error(f"Request failed: {e}")
             break
 
+        # Try 'lxml' if you have it, otherwise stick to 'html.parser'
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # Look for the container that actually holds the ratings
-        # If 'table.tbl' failed, let's just find all <tr> tags
-        rows = soup.find_all('tr')
-        logger.debug(f"Found {len(rows)} potential rows")
+        # DEBUG: Let's see if we're getting a "No ratings found" message
+        if "has not rated any" in r.text:
+            logger.warning(f"MusicBrainz reports no public ratings for {username} on this page.")
+            break
 
-        for row in rows:
-            # 1. Find the MBID link
-            # We look for a link that has a UUID-looking string at the end
-            mbid = ""
-            for a in row.find_all('a', href=True):
-                href = a['href']
-                # Match /artist/UUID or /release-group/UUID
-                # Using a split and check for the 36-char UUID
-                parts = href.strip('/').split('/')
-                if len(parts) >= 2:
-                    potential_uuid = parts[-1]
-                    if len(potential_uuid) == 36 and potential_uuid.count('-') == 4:
-                        mbid = potential_uuid
-                        break
+        # Look for all links on the page
+        all_links = soup.find_all('a', href=True)
+        logger.debug(f"Scanning {len(all_links)} links for UUIDs...")
+
+        for a in all_links:
+            href = a['href']
+            # UUID check (8-4-4-4-12 pattern)
+            parts = href.strip('/').split('/')
+            mbid = parts[-1]
             
-            # 2. Find the rating
-            # MusicBrainz sometimes uses 'star-rating' or 'current-rating' classes
-            rating_span = row.find('span', class_='current-rating')
-            if not rating_span:
-                # Fallback: look for any span with 'rating' in the class
-                rating_span = row.find('span', class_=lambda x: x and 'rating' in x)
+            if len(mbid) == 36 and mbid.count('-') == 4:
+                # We found an MBID! Now look for the rating NEAR it.
+                # Usually, it's in a <span> in the same parent container (the <td> or <li>)
+                parent = a.find_parent(['td', 'tr', 'li'])
+                if parent:
+                    rating_span = parent.select_one('span.current-rating')
+                    if rating_span:
+                        rating_val = rating_span.get_text(strip=True)
+                        if rating_val and mbid not in results:
+                            results[mbid] = rating_val
+                            logger.debug(f"Captured: {mbid} -> {rating_val}")
 
-            if mbid and rating_span:
-                rating_val = rating_span.get_text(strip=True)
-                if rating_val:
-                    results[mbid] = rating_val
-                    logger.debug(f"Captured: {mbid} -> {rating_val}")
-
-        # 3. Robust Pagination
-        # Look for "Next" by text since rel='next' might be missing in some views
+        # Pagination
         next_link = soup.find('a', string=lambda t: t and 'Next' in t)
         if next_link and next_link.get('href'):
             next_path = next_link['href']
             url = f"https://musicbrainz.org{next_path}" if next_path.startswith('/') else next_path
+            # Check for same-page loop
+            if url == r.url: url = None
         else:
             url = None
 
