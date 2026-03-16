@@ -31,14 +31,14 @@ def get_releases_from_rg(rg_mbid):
     """
     # 1. Ask Ampache first (Instant)
     # Most modern Ampache installs store the Release Group MBID
-    logger.debug(f"Searching Ampache for Release Group MBID: {rg_mbid}")
-    try:
+    # logger.debug(f"Searching Ampache for Release Group MBID: {rg_mbid}")
+    # try:
         # Check if your Ampache API library supports filtering by mbid_group
-        amp_albums = ampacheConnection.get_albums(filter={'mbid_group': rg_mbid})
-        if amp_albums:
-            return [album.id for album in amp_albums]
-    except Exception as e:
-        logger.debug(f"Ampache RG search failed or unsupported: {e}")
+        # amp_albums = ampacheConnection.get_albums(filter={'mbid_group': rg_mbid})
+        # if amp_albums:
+            # return [album.id for album in amp_albums]
+    # except Exception as e:
+        # logger.debug(f"Ampache RG search failed or unsupported: {e}")
 
     # 2. Fallback: Ask MusicBrainz (1s Delay)
     # If Ampache doesn't have the RG ID indexed, we find the specific 
@@ -46,13 +46,13 @@ def get_releases_from_rg(rg_mbid):
     logger.debug(f"Falling back to MB API for RG: {rg_mbid}")
     try:
         # As discussed, include 'releases' to get the mapping in one trip
-        result = musicbrainzngs.get_release_group_by_id(rg_mbid, includes=["releases"])
+        result = get_releases_by_release_group_id( album )
         mb_release_ids = [rel['id'] for rel in result['release-group'].get('release-list', [])]
         
         found_amp_ids = []
         for rel_id in mb_release_ids:
             # Search Ampache for the specific Release MBID
-            a_album = ampacheConnection.get_albums(filter={'mbid': rel_id})
+			a_album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
             if a_album:
                 found_amp_ids.extend([a.id for a in a_album])
         
