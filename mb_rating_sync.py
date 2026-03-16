@@ -74,7 +74,7 @@ def get_mb_ratings(entity_type, username):
         all_links = soup.find_all('a', href=True)
         logger.debug(f"Scanning {len(all_links)} links for UUIDs...")
 
-    for a in all_links:
+        for a in all_links:
             # RESET HERE: Ensure we start fresh for every link
             mbid = "" 
             
