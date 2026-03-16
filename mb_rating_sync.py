@@ -98,6 +98,48 @@ def get_mb_artist_ratings(username):
 
     return artists_from
 
+def get_mb_release_ratings(username):
+    """
+    Fetches all album (release-group) ratings for a given user.
+    """
+    releases_from = {}
+    limit = 100
+    offset = 0
+
+    logger.info(f"Fetching MusicBrainz album ratings for user: {username}")
+
+    while True:
+        try:
+            # Most users rate the 'Release Group' (the album entity)
+            result = musicbrainzngs.get_user_release_group_ratings(username, limit=limit, offset=offset)
+            
+            rating_list = result.get('release-group-rating-list', [])
+            total_count = int(result.get('release-group-count', 0))
+
+            if not rating_list:
+                break
+
+            for item in rating_list:
+                # The ID here is the Release Group MBID
+                mbid = item['id']
+                # API returns 0-100; your script handles the math later
+                rating = item.get('rating', 0)
+                releases_from[mbid] = rating
+
+            logger.debug(f"Retrieved {len(releases_from)} / {total_count} albums...")
+
+            if len(releases_from) >= total_count:
+                break
+
+            offset += limit
+            time.sleep(1) # Respect the 1s rate limit
+
+        except Exception as e:
+            logger.error(f"Error fetching MB album ratings: {e}")
+            break
+
+    return releases_from
+
 def _get_kodiConnection():
     _kodiConnection = mariadb.connect(
             user=args.Kodi_user,
@@ -304,45 +346,7 @@ if args.sync_from == 'Ampache':
 elif args.sync_from == 'Kodi':
     pass
 elif args.sync_from == 'MusicBrainz':
-    mb_ratings_link = 'https://musicbrainz.org/user/{}/ratings/release_group'.format(args.MB_ID)
-    next_mb_ratings_link = ''
-    while mb_ratings_link:
-        r = None
-        for i in range(3):
-            try:
-                r = r_get(mb_ratings_link)
-                r.raise_for_status()
-                break
-            except r_exceptions.RequestException as e:
-                logger.warning(f"Failed to fetch ratings from MusicBrainz (attempt {i+1}/3): {e}")
-                if i < 2:
-                    time.sleep(5)
-                else:
-                    logger.error("Could not fetch ratings from MusicBrainz. Giving up.")
-                    mb_ratings_link = ''
-        
-        if not r or not mb_ratings_link:
-            break
-
-        soup = BeautifulSoup(r.text, 'html.parser')
-        for list in soup.find_all('li'):
-            for link in list.find_all('a'):
-                if "/release-group/" in link.get('href'):
-                    _mbid = (link.get('href')[15:])
-                elif link.contents[0] == 'Next':
-                    next_mb_ratings_link=link.get('href')
-            for span in list.find_all('span'):
-                for subspan in span.find_all('span'):
-                    if subspan.get('class')[0] == "current-rating":
-                        _rating = subspan.contents[0]
-            albums_from.update( { _mbid : _rating } )
-            logger.debug("Got " + str(len(albums_from)) + " albums")
-            _mbid=""
-            _rating=""
-        if mb_ratings_link != next_mb_ratings_link:
-            mb_ratings_link = next_mb_ratings_link
-        else:
-            mb_ratings_link = ''
+    albums_from = get_mb_release_ratings(args.MB_ID)
 
 if args.sync_to == 'Ampache':
     for album,rating in albums_from.items():
