@@ -24,6 +24,23 @@ def mbRating_to_KodiRating( _rating ):
 def ampRating_to_KodiRating( _rating ):
     return int(_rating) * 2
 
+def get_release_by_id(mb_id):
+    """
+    Search Ampache for an album by its MusicBrainz Release ID
+    """
+    # 4 is the operator for 'Equal' in Ampache Advanced Search
+    # We search the 'mbid' field for the specific ID
+    try:
+        search_filter = [['mbid', 4, mb_id]]
+        results = ampacheConnection.advanced_search(search_filter, object_type='album')
+        
+        if results and len(results) > 0:
+            return results
+    except Exception as e:
+        logger.error(f"Ampache search failed for MBID {mb_id}: {e}")
+        
+    return None
+
 def get_releases_from_rg(rg_mbid):
     """
     Finds Ampache album IDs associated with a Release Group MBID.
@@ -52,7 +69,7 @@ def get_releases_from_rg(rg_mbid):
         found_amp_ids = []
         for rel_id in mb_release_ids:
 			# Search Ampache for the specific Release MBID
-			__album = ampacheConnection.advanced_search([['mbid',4,__album]], object_type='album')
+			__album = get_release_by_id(rel_id)
 			if __album:
 				found_amp_ids.extend([a.id for a in a_album])
 			
