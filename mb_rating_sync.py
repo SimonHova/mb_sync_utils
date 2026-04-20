@@ -9,6 +9,8 @@ import ampache
 
 import mariadb
 
+import requests
+
 from bs4 import BeautifulSoup
 from requests import get as r_get, exceptions as r_exceptions
 
@@ -114,7 +116,7 @@ def get_mb_ratings(entity_type, username):
 
     return results
 
-def fixed_rate(obj_id, rating_val, obj_type='song'):
+def fixed_rate(object_id, rating, object_type='song'):
     """
     Bypasses the buggy ampache library and talks to the API directly.
     """
@@ -122,9 +124,9 @@ def fixed_rate(obj_id, rating_val, obj_type='song'):
     params = {
         'action': 'rate',
         'auth': ampacheConnection.AMPACHE_SESSION,
-        'type': obj_type,
-        'id': obj_id,
-        'rating': rating_val
+        'type': object_type,
+        'id': object_id,
+        'rating': rating
     }
     
     try:
@@ -494,9 +496,7 @@ if args.sync_to == 'Ampache':
                                     logger.debug('Ratings match for song MBID {}'.format(song))
                                 else:
                                     logger.debug('Ampache had rating of {}. Setting rating {} for song MBID {}'.format(amp_rating.text,rating,song))
-                                    if int(fixed_rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')[0].attrib['code']) != 1:
-                                        logger.error('Broke at song MBID {}'.format(song))
-                                        break
+                                    fixed_rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')
 elif args.sync_to == 'MusicBrainz':
     try:
         logger.debug("Submitting ratings for " + str(len(songs_from)) + " songs")
