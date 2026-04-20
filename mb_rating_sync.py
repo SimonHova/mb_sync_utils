@@ -114,6 +114,28 @@ def get_mb_ratings(entity_type, username):
 
     return results
 
+def fixed_rate(obj_id, rating_val, obj_type='song'):
+    """
+    Bypasses the buggy ampache library and talks to the API directly.
+    """
+    endpoint = f"{ampacheConnection.AMPACHE_URL.rstrip('/')}/server/xml.server.php"
+    params = {
+        'action': 'rate',
+        'auth': ampacheConnection.AMPACHE_SESSION,
+        'type': obj_type,
+        'id': obj_id,
+        'rating': rating_val
+    }
+    
+    try:
+        r = requests.get(endpoint, params=params, timeout=10)
+        if '<success code="1">' in r.text:
+            return True
+        logger.error(f"Rate failed: {r.text}")
+    except Exception as e:
+        logger.error(f"API Error: {e}")
+    return False
+
 def _get_kodiConnection():
     _kodiConnection = mariadb.connect(
             user=args.Kodi_user,
@@ -280,13 +302,13 @@ if args.sync_to == 'Ampache':
                 else:
                     if amp_rating == None:
                         logger.debug('Artist had no rating. Setting rating {} for artist MBID {}'.format(rating,artist))
-                        ampacheConnection.rate(object_id=int(amp_artist[2].attrib['id']), rating=int(rating), object_type='artist')
+                        fixed_rate(object_id=int(amp_artist[2].attrib['id']), rating=int(rating), object_type='artist')
                     else:
                         if rating == amp_rating.text:
                             logger.debug('Ratings match for artist MBID {}'.format(artist))
                         else:
                             logger.debug('Ampache had rating of {}. Setting rating {} for artist MBID {}'.format(amp_rating.text,rating,artist))
-                            amp_rated = ampacheConnection.rate(object_id=int(amp_artist[2].attrib['id']), rating=int(rating), object_type='artist')
+                            amp_rated = fixed_rate(object_id=int(amp_artist[2].attrib['id']), rating=int(rating), object_type='artist')
                             # todo: check amp_rated for error
 elif args.sync_to == 'Kodi':
     # Kodi does not currently support artist ratings.
@@ -341,7 +363,7 @@ if args.sync_to == 'Ampache':
                         else:
                             if amp_rating.text is None:
                                 logger.debug('album had no rating. Setting rating {} for album MBID {}'.format(rating,__album))
-                                amp_rated = ampacheConnection.rate(object_id=int(amp_album[2].attrib['id']), rating=int(rating), object_type='album')
+                                amp_rated = fixed_rate(object_id=int(amp_album[2].attrib['id']), rating=int(rating), object_type='album')
                                 _album_rated = True
                                 # todo: check amp_rated for error
                             else:
@@ -350,7 +372,7 @@ if args.sync_to == 'Ampache':
                                     _album_rated = True
                                 else:
                                     logger.debug('Ampache had rating of {}. Setting rating {} for album MBID {}'.format(amp_rating.text,rating,__album))
-                                    amp_rated = ampacheConnection.rate(object_id=int(amp_album.attrib['id']), rating=int(rating), object_type='album')
+                                    amp_rated = fixed_rate(object_id=int(amp_album.attrib['id']), rating=int(rating), object_type='album')
                                     _album_rated = True
                                     # todo: check amp_rated for error
             if not _album_rated:
@@ -466,13 +488,13 @@ if args.sync_to == 'Ampache':
                         else:
                             if amp_rating == None:
                                 logger.debug('song had no rating. Setting rating {} for song MBID {}'.format(rating,song))
-                                ampacheConnection.rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')
+                                fixed_rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')
                             else:
                                 if rating == amp_rating.text:
                                     logger.debug('Ratings match for song MBID {}'.format(song))
                                 else:
                                     logger.debug('Ampache had rating of {}. Setting rating {} for song MBID {}'.format(amp_rating.text,rating,song))
-                                    if int(ampacheConnection.rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')[0].attrib['code']) != 1:
+                                    if int(fixed_rate(object_id=int(song_to.attrib['id']), rating=int(rating), object_type='song')[0].attrib['code']) != 1:
                                         logger.error('Broke at song MBID {}'.format(song))
                                         break
 elif args.sync_to == 'MusicBrainz':
@@ -487,7 +509,7 @@ elif args.sync_to == 'MusicBrainz':
             _chunk_offset+=1
         _offset+=1
     except Exception as e:
-        logger.error(f"Error submitting album ratings to MusicBrainz: {e}")
+        logger.error(f"Error submitting song ratings to MusicBrainz: {e}")
 elif args.sync_to == 'Kodi':
     for song,rating in songs_from.items():
         if song is not None and song != "":  # skip null results
@@ -499,4 +521,3 @@ elif args.sync_to == 'Kodi':
 #     print("Submitting ratings for MBID:" + song)
 
 #     musicbrainzngs.submit_ratings( recording_ratings={ song:rating } )
-
