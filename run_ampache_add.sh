@@ -28,3 +28,6 @@ fi
     echo "Ampache Catalog Update completed successfully."
 
 ) 200> "$LOCK_FILE"
+
+RC=$?
+exit $RC

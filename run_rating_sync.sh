@@ -48,4 +48,5 @@ fi
 
 ) 200> "$LOCK_FILE"  # Associates file descriptor 200 with the lock file
 
-exit 0 # Script always exits 0 unless flock fails or required vars are missing
+RC=$?
+exit $RC
