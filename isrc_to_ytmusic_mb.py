@@ -18,6 +18,7 @@ musicbrainzngs.set_useragent(
 )
 
 CACHE_DIR = "./.cache"
+DEFAULT_SPOTDL_CONFIG = os.path.expanduser("~/.config/spotdl/config.json")
 
 
 def load_env_file():
@@ -57,7 +58,60 @@ def resolve_ytdlp_path(custom_path: str = None) -> str:
         elif os.path.exists(candidate):
             return candidate
 
-    return "yt-dlp"  # Fallback to system execution if not found directly
+    return "yt-dlp"
+
+
+def get_spotdl_output_template() -> str:
+    """Reads ~/.config/spotdl/config.json to get the user's preferred output path template."""
+    config_path = os.getenv("SPOTDL_CONFIG_PATH", DEFAULT_SPOTDL_CONFIG)
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+                output_str = config_data.get("output")
+                if output_str:
+                    print(f"⚙️ Loaded output template from SpotDL config: {output_str}")
+                    return output_str
+        except Exception as e:
+            print(f"⚠️ Could not read SpotDL config at {config_path}: {e}")
+
+    # Fallback template if config file doesn't exist
+    return "/media/Put/Downloads/yt-fetch/music/{album}/{artists} - {title}.{output-ext}"
+
+
+def sanitize_filename(name: str) -> str:
+    """Removes invalid path characters."""
+    return re.sub(r'[\\/*?:"<>|]', "", name).strip()
+
+
+def build_output_path(template: str, album: str, artist: str, title: str, track_num: int, ext: str = "mp3") -> str:
+    """Replaces SpotDL placeholders with sanitized track metadata for yt-dlp."""
+    safe_album = sanitize_filename(album)
+    safe_artist = sanitize_filename(artist)
+    safe_title = sanitize_filename(title)
+    formatted_num = f"{track_num:02d}"
+
+    path = template
+
+    # SpotDL placeholder mapping
+    replacements = {
+        "{album}": safe_album,
+        "{artists}": safe_artist,
+        "{artist}": safe_artist,
+        "{title}": safe_title,
+        "{track-number}": formatted_num,
+        "{track_number}": formatted_num,
+        "{disc-number}": "01",
+        "{disc_number}": "01",
+        "{output-ext}": ext,
+        "{ext}": ext,
+    }
+
+    for key, value in replacements.items():
+        path = path.replace(key, value)
+
+    return path
 
 
 def extract_spotify_id(url_or_id: str) -> str:
@@ -245,7 +299,6 @@ def process_isrcs_against_musicbrainz(album_data: dict, spotify_id: str, downloa
             )
             print(f"   ❌ MB Response Error: {e}")
 
-    # Cache processing output
     processed_output = {
         "spotify_id": spotify_id,
         "album": album_name,
@@ -262,23 +315,31 @@ def process_isrcs_against_musicbrainz(album_data: dict, spotify_id: str, downloa
 
 
 def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp_binary: str):
-    """Downloads tracks into 'Artist - Album/TrackNum - Title.ext' using yt-dlp."""
+    """Downloads tracks using the output path structure defined in spotdl's config.json."""
+    output_template = get_spotdl_output_template()
+
     print("\n" + "=" * 70)
     print(f" STARTING YT-DLP ALBUM DOWNLOAD (Using: {ytdlp_binary}) ")
     print("=" * 70)
-
-    safe_artist = re.sub(r'[\\/*?:"<>|]', "", artist)
-    safe_album = re.sub(r'[\\/*?:"<>|]', "", album)
-    output_folder = f"./downloads/{safe_artist} - {safe_album}"
-
-    os.makedirs(output_folder, exist_ok=True)
 
     for item in tracks:
         url = item["yt_url"]
         num = item["track_number"]
         title = item["title"]
 
-        output_template = f"{output_folder}/{num:02d} - %(title)s.%(ext)s"
+        # Calculate exact target output path from SpotDL template
+        target_file_path = build_output_path(
+            output_template,
+            album=album,
+            artist=artist,
+            title=title,
+            track_num=num,
+            ext="mp3",
+        )
+
+        target_dir = os.path.dirname(target_file_path)
+        if target_dir:
+            os.makedirs(target_dir, exist_ok=True)
 
         cmd = [
             ytdlp_binary,
@@ -290,11 +351,13 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp
             "--parse-metadata", f"title:{title}",
             "--parse-metadata", f"artist:{artist}",
             "--parse-metadata", f"album:{album}",
-            "-o", output_template,
+            "-o", target_file_path,
             url,
         ]
 
-        print(f"\nDownloading [{num:02d}] {title} ...")
+        print(f"\nDownloading [{num:02d}] {title}")
+        print(f"   Destination: {target_file_path}")
+
         try:
             subprocess.run(cmd, check=True)
             print("   Done!")
@@ -331,7 +394,6 @@ if __name__ == "__main__":
     refresh_flag = False
     custom_ytdlp = None
 
-    # CLI Arguments Parsing
     for idx, arg in enumerate(sys.argv):
         if arg.startswith("http") or (len(arg) == 22 and arg.isalnum() and idx > 0):
             album_url = arg
@@ -345,7 +407,6 @@ if __name__ == "__main__":
     spotify_id = extract_spotify_id(album_url)
     ytdlp_bin = resolve_ytdlp_path(custom_ytdlp)
 
-    # Check Cache
     cached_data = None if refresh_flag else get_cached_data(spotify_id)
 
     if cached_data:
