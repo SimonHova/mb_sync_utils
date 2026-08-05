@@ -1,3 +1,4 @@
+import argparse
 import html
 import json
 import os
@@ -18,6 +19,7 @@ musicbrainzngs.set_useragent(
 )
 
 CACHE_DIR = "./.cache"
+REGISTRY_FILE = os.path.join(CACHE_DIR, "isrc_registry.json")
 DEFAULT_SPOTDL_CONFIG = os.path.expanduser("~/.config/spotdl/config.json")
 
 
@@ -71,12 +73,10 @@ def get_spotdl_output_template() -> str:
                 config_data = json.load(f)
                 output_str = config_data.get("output")
                 if output_str:
-                    print(f"⚙️ Loaded output template from SpotDL config: {output_str}")
                     return output_str
         except Exception as e:
             print(f"⚠️ Could not read SpotDL config at {config_path}: {e}")
 
-    # Fallback template if config file doesn't exist
     return "/media/Put/Downloads/yt-fetch/music/{album}/{artists} - {title}.{output-ext}"
 
 
@@ -93,8 +93,6 @@ def build_output_path(template: str, album: str, artist: str, title: str, track_
     formatted_num = f"{track_num:02d}"
 
     path = template
-
-    # SpotDL placeholder mapping
     replacements = {
         "{album}": safe_album,
         "{artists}": safe_artist,
@@ -121,7 +119,25 @@ def extract_spotify_id(url_or_id: str) -> str:
     return match.group(1)
 
 
-def get_cached_data(spotify_id: str) -> dict | None:
+def load_isrc_registry() -> dict:
+    """Loads global cross-album ISRC mapping cache."""
+    if os.path.exists(REGISTRY_FILE):
+        try:
+            with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_isrc_registry(registry: dict):
+    """Saves global cross-album ISRC mapping cache."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(REGISTRY_FILE, "w", encoding="utf-8") as f:
+        json.dump(registry, f, indent=2)
+
+
+def get_cached_album(spotify_id: str) -> dict | None:
     cache_file = os.path.join(CACHE_DIR, f"{spotify_id}.json")
     if os.path.exists(cache_file):
         try:
@@ -132,7 +148,7 @@ def get_cached_data(spotify_id: str) -> dict | None:
     return None
 
 
-def save_cache_data(spotify_id: str, data: dict):
+def save_cached_album(spotify_id: str, data: dict):
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_file = os.path.join(CACHE_DIR, f"{spotify_id}.json")
     with open(cache_file, "w", encoding="utf-8") as f:
@@ -188,134 +204,215 @@ def fetch_isrchunt_tracks(spotify_id: str) -> dict:
     return {"album": album_title, "artist": artist_name, "tracks": tracks}
 
 
-def process_isrcs_against_musicbrainz(album_data: dict, spotify_id: str, download_now: bool = False, ytdlp_binary: str = "yt-dlp"):
-    """Queries MB by ISRC, filters strictly for music.youtube.com links, and saves output to cache."""
-    tracks = album_data["tracks"]
-    album_name = album_data["album"]
-    artist_name = album_data["artist"]
+def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str, album_name: str) -> tuple[dict | None, dict | None]:
+    """Queries MusicBrainz for a single track ISRC."""
+    print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
+    try:
+        time.sleep(1.0)  # Rate Limit
+        isrc_res = musicbrainzngs.get_recordings_by_isrc(isrc)
+        recording_list = isrc_res.get("isrc", {}).get("recording-list", [])
 
-    list_1_downloadable = []
-    list_2_yt_link_issues = []
+        if not recording_list:
+            return None, {
+                "track_number": num,
+                "title": title,
+                "isrc": isrc,
+                "reason": "ISRC not found on MusicBrainz",
+                "mb_url": f"https://musicbrainz.org/isrc/{isrc}",
+                "yt_urls": [],
+            }
 
+        all_ytm_urls = []
+        all_yt_urls = []
+        primary_mbid = recording_list[0]["id"]
+        mb_recording_url = f"https://musicbrainz.org/recording/{primary_mbid}"
+
+        for rec in recording_list:
+            time.sleep(1.0)  # Rate Limit
+            rec_detail = musicbrainzngs.get_recording_by_id(rec["id"], includes=["url-rels"])
+            relations = rec_detail.get("recording", {}).get("url-relation-list", [])
+
+            for rel in relations:
+                target_url = rel.get("target", "")
+                if "music.youtube.com" in target_url:
+                    all_ytm_urls.append(target_url)
+                elif "youtube.com" in target_url or "youtu.be" in target_url:
+                    all_yt_urls.append(target_url)
+
+        unique_ytm_urls = list(set(all_ytm_urls))
+        unique_yt_urls = list(set(all_yt_urls))
+
+        if len(unique_ytm_urls) == 1:
+            print(f"   ✅ Single YTM Link Found: {unique_ytm_urls[0]}")
+            return {
+                "track_number": num,
+                "title": title,
+                "artist": artist_name,
+                "album": album_name,
+                "isrc": isrc,
+                "mbid": primary_mbid,
+                "yt_url": unique_ytm_urls[0],
+            }, None
+
+        else:
+            if len(unique_ytm_urls) > 1:
+                reason = f"Multiple competing YTM links found ({len(unique_ytm_urls)})"
+                target_links = unique_ytm_urls
+            elif len(unique_yt_urls) > 0:
+                reason = f"No YTM links found (Only standard YouTube links exist: {len(unique_yt_urls)})"
+                target_links = unique_yt_urls
+            else:
+                reason = "No YouTube links linked on MB"
+                target_links = []
+
+            print(f"   ⚠️ {reason}")
+            return None, {
+                "track_number": num,
+                "title": title,
+                "isrc": isrc,
+                "mbid": primary_mbid,
+                "mb_url": mb_recording_url,
+                "reason": reason,
+                "yt_urls": target_links,
+            }
+
+    except musicbrainzngs.ResponseError as e:
+        print(f"   ❌ MB Response Error: {e}")
+        return None, {
+            "track_number": num,
+            "title": title,
+            "isrc": isrc,
+            "reason": "ISRC error on MB",
+            "mb_url": f"https://musicbrainz.org/isrc/{isrc}",
+            "yt_urls": [],
+        }
+
+
+def process_album(spotify_id: str, refresh: bool = False, recheck_unresolved: bool = True) -> dict:
+    """Processes album tracks using both album cache and global cross-album ISRC registry."""
+    registry = load_isrc_registry()
+    cached_data = None if refresh else get_cached_album(spotify_id)
+
+    if cached_data and not recheck_unresolved:
+        print(f"⚡ Loaded complete cached results for '{cached_data['album']}' (.cache/{spotify_id}.json)")
+        return cached_data
+
+    # Step 1: Fetch track list from ISRCHunt if not in album cache
+    if not cached_data:
+        album_data = fetch_isrchunt_tracks(spotify_id)
+        tracks = album_data.get("tracks", [])
+        album_name = album_data["album"]
+        artist_name = album_data["artist"]
+        downloadable = []
+        unresolved = []
+    else:
+        tracks = []
+        album_name = cached_data["album"]
+        artist_name = cached_data["artist"]
+        downloadable = cached_data.get("downloadable_tracks", [])
+        unresolved = cached_data.get("issue_tracks", [])
+
+    # If loading cached album, recheck unresolved tracks against global registry or MB
+    if cached_data and recheck_unresolved and unresolved:
+        print(f"🔄 Re-checking {len(unresolved)} unresolved tracks on MusicBrainz...")
+        updated_unresolved = []
+
+        for item in unresolved:
+            isrc = item["isrc"]
+            # Check global registry first unless --refresh
+            if not refresh and isrc in registry and registry[isrc].get("status") == "resolved":
+                print(f"[{item['track_number']:02d}] ⚡ Loaded ISRC {isrc} from Global Registry!")
+                downloadable.append(registry[isrc]["data"])
+                continue
+
+            dl_item, issue_item = check_isrc_on_musicbrainz(
+                isrc, item["title"], item["track_number"], artist_name, album_name
+            )
+            if dl_item:
+                downloadable.append(dl_item)
+                registry[isrc] = {"status": "resolved", "data": dl_item}
+            if issue_item:
+                updated_unresolved.append(issue_item)
+                registry[isrc] = {"status": "unresolved", "data": issue_item}
+
+        downloadable.sort(key=lambda x: x["track_number"])
+        updated_unresolved.sort(key=lambda x: x["track_number"])
+
+        result = {
+            "spotify_id": spotify_id,
+            "album": album_name,
+            "artist": artist_name,
+            "downloadable_tracks": downloadable,
+            "issue_tracks": updated_unresolved,
+        }
+        save_isrc_registry(registry)
+        save_cached_album(spotify_id, result)
+        return result
+
+    # Full fresh run for new album
     print(f"\nProcessing {len(tracks)} ISRCs for '{album_name}' by '{artist_name}'...\n" + "=" * 70)
 
     for track in tracks:
         isrc = track["isrc"]
-        title = track["title"]
         num = track["track_number"]
+        title = track["title"]
 
-        print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
+        # Cross-album registry lookup check
+        if not refresh and isrc in registry and registry[isrc].get("status") == "resolved":
+            print(f"[{num:02d}] ⚡ Found ISRC {isrc} in Global Registry ({title})")
+            dl_cached = dict(registry[isrc]["data"])
+            dl_cached["track_number"] = num  # Keep track number specific to current album
+            downloadable.append(dl_cached)
+            continue
 
-        try:
-            time.sleep(1.0)  # MB Rate Limit
+        dl_item, issue_item = check_isrc_on_musicbrainz(isrc, title, num, artist_name, album_name)
+        if dl_item:
+            downloadable.append(dl_item)
+            registry[isrc] = {"status": "resolved", "data": dl_item}
+        if issue_item:
+            unresolved.append(issue_item)
+            registry[isrc] = {"status": "unresolved", "data": issue_item}
 
-            isrc_res = musicbrainzngs.get_recordings_by_isrc(isrc)
-            recording_list = isrc_res.get("isrc", {}).get("recording-list", [])
-
-            if not recording_list:
-                mb_isrc_url = f"https://musicbrainz.org/isrc/{isrc}"
-                list_2_yt_link_issues.append(
-                    {
-                        "track_number": num,
-                        "title": title,
-                        "isrc": isrc,
-                        "reason": "ISRC not found on MusicBrainz",
-                        "mb_url": mb_isrc_url,
-                        "yt_urls": [],
-                    }
-                )
-                print("   ❌ ISRC not found on MusicBrainz")
-                continue
-
-            all_ytm_urls = []
-            all_yt_urls = []
-            primary_mbid = recording_list[0]["id"]
-            mb_recording_url = f"https://musicbrainz.org/recording/{primary_mbid}"
-
-            for rec in recording_list:
-                time.sleep(1.0)  # MB Rate Limit
-                rec_detail = musicbrainzngs.get_recording_by_id(rec["id"], includes=["url-rels"])
-                relations = rec_detail.get("recording", {}).get("url-relation-list", [])
-
-                for rel in relations:
-                    target_url = rel.get("target", "")
-                    if "music.youtube.com" in target_url:
-                        all_ytm_urls.append(target_url)
-                    elif "youtube.com" in target_url or "youtu.be" in target_url:
-                        all_yt_urls.append(target_url)
-
-            unique_ytm_urls = list(set(all_ytm_urls))
-            unique_yt_urls = list(set(all_yt_urls))
-
-            if len(unique_ytm_urls) == 1:
-                list_1_downloadable.append(
-                    {
-                        "track_number": num,
-                        "title": title,
-                        "artist": artist_name,
-                        "album": album_name,
-                        "isrc": isrc,
-                        "mbid": primary_mbid,
-                        "yt_url": unique_ytm_urls[0],
-                    }
-                )
-                print(f"   ✅ Single YTM Link Found: {unique_ytm_urls[0]}")
-
-            else:
-                if len(unique_ytm_urls) > 1:
-                    reason = f"Multiple competing YTM links found ({len(unique_ytm_urls)})"
-                    target_links = unique_ytm_urls
-                elif len(unique_yt_urls) > 0:
-                    reason = f"No YTM links found (Only standard YouTube links exist: {len(unique_yt_urls)})"
-                    target_links = unique_yt_urls
-                else:
-                    reason = "No YouTube links linked on MB"
-                    target_links = []
-
-                list_2_yt_link_issues.append(
-                    {
-                        "track_number": num,
-                        "title": title,
-                        "isrc": isrc,
-                        "mbid": primary_mbid,
-                        "mb_url": mb_recording_url,
-                        "reason": reason,
-                        "yt_urls": target_links,
-                    }
-                )
-                print(f"   ⚠️ {reason}")
-
-        except musicbrainzngs.ResponseError as e:
-            mb_isrc_url = f"https://musicbrainz.org/isrc/{isrc}"
-            list_2_yt_link_issues.append(
-                {
-                    "track_number": num,
-                    "title": title,
-                    "isrc": isrc,
-                    "reason": "ISRC error on MB",
-                    "mb_url": mb_isrc_url,
-                    "yt_urls": [],
-                }
-            )
-            print(f"   ❌ MB Response Error: {e}")
-
-    processed_output = {
+    result = {
         "spotify_id": spotify_id,
         "album": album_name,
         "artist": artist_name,
-        "downloadable_tracks": list_1_downloadable,
-        "issue_tracks": list_2_yt_link_issues,
+        "downloadable_tracks": downloadable,
+        "issue_tracks": unresolved,
     }
-    save_cache_data(spotify_id, processed_output)
-
-    _print_summary(list_1_downloadable, list_2_yt_link_issues)
-
-    if download_now and list_1_downloadable:
-        download_album_with_ytdlp(album_name, artist_name, list_1_downloadable, ytdlp_binary)
+    save_isrc_registry(registry)
+    save_cached_album(spotify_id, result)
+    return result
 
 
-def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp_binary: str):
-    """Downloads tracks using the output path structure defined in spotdl's config.json."""
+def export_issues_file(album: str, artist: str, spotify_id: str, issue_tracks: list[dict]):
+    """Exports unresolved tracks into a clean, easy-to-click text file for MB editing sessions."""
+    filename = f"edit_list_{spotify_id}.txt"
+    filepath = os.path.join(os.getcwd(), filename)
+
+    issue_tracks_sorted = sorted(issue_tracks, key=lambda x: x["track_number"])
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f"======================================================================\n")
+        f.write(f" MUSICBRAINZ EDIT LIST: {artist} - {album}\n")
+        f.write(f" Spotify Album ID: {spotify_id}\n")
+        f.write(f" Total Unresolved Tracks: {len(issue_tracks_sorted)}\n")
+        f.write(f"======================================================================\n\n")
+
+        for item in issue_tracks_sorted:
+            f.write(f"[{item['track_number']:02d}] {item['title']}\n")
+            f.write(f"     ISRC:      {item['isrc']}\n")
+            f.write(f"     MB URL:    {item['mb_url']}\n")
+            f.write(f"     Issue:     {item['reason']}\n")
+            if item.get("yt_urls"):
+                f.write(f"     Found URLs: {', '.join(item['yt_urls'])}\n")
+            f.write(f"{'-' * 60}\n")
+
+    print(f"\n📝 Exported edit list for MusicBrainz to: {filepath}")
+
+
+def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp_binary: str, force_download: bool = False):
+    """Downloads tracks using yt-dlp, verifying existing files on disk first."""
     output_template = get_spotdl_output_template()
 
     print("\n" + "=" * 70)
@@ -327,7 +424,6 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp
         num = item["track_number"]
         title = item["title"]
 
-        # Calculate exact target output path from SpotDL template
         target_file_path = build_output_path(
             output_template,
             album=album,
@@ -340,6 +436,11 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp
         target_dir = os.path.dirname(target_file_path)
         if target_dir:
             os.makedirs(target_dir, exist_ok=True)
+
+        if os.path.exists(target_file_path) and not force_download:
+            print(f"\n⏭️ Skipping [{num:02d}] {title} (File already exists)")
+            print(f"   Location: {target_file_path}")
+            continue
 
         cmd = [
             ytdlp_binary,
@@ -355,7 +456,7 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp
             url,
         ]
 
-        print(f"\nDownloading [{num:02d}] {title}")
+        print(f"\n📥 Downloading [{num:02d}] {title}")
         print(f"   Destination: {target_file_path}")
 
         try:
@@ -386,48 +487,75 @@ def _print_summary(list_1, list_2):
             print(f"       URLs:   {', '.join(item['yt_urls'])}")
 
 
-if __name__ == "__main__":
+def main():
     load_env_file()
 
-    album_url = "https://open.spotify.com/album/6wEh2L2nX5qVc7fDgCMGNn"
-    download_flag = False
-    refresh_flag = False
-    custom_ytdlp = None
+    parser = argparse.ArgumentParser(
+        description="MusicBrainz Spotify ISRC to YouTube Music Importer & Downloader",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "url",
+        metavar="SPOTIFY_URL_OR_ID",
+        help="Spotify Album URL or 22-character Spotify Album ID",
+    )
+    parser.add_argument(
+        "-d", "--download",
+        action="store_true",
+        help="Trigger yt-dlp to download all matched YouTube Music tracks",
+    )
+    parser.add_argument(
+        "-e", "--export-issues",
+        action="store_true",
+        help="Export unresolved tracks/issues to a formatted text file (edit_list_<id>.txt)",
+    )
+    parser.add_argument(
+        "-r", "--refresh",
+        action="store_true",
+        help="Bypass local cache completely and re-query ISRCHunt and MusicBrainz for all tracks",
+    )
+    parser.add_argument(
+        "-f", "--force",
+        action="store_true",
+        help="Force re-downloading files with yt-dlp even if they already exist on disk",
+    )
+    parser.add_argument(
+        "--yt-dlp-path",
+        metavar="PATH",
+        help="Explicit path to the yt-dlp binary (overrides PATH and .env)",
+    )
 
-    for idx, arg in enumerate(sys.argv):
-        if arg.startswith("http") or (len(arg) == 22 and arg.isalnum() and idx > 0):
-            album_url = arg
-        elif arg == "--download":
-            download_flag = True
-        elif arg == "--refresh":
-            refresh_flag = True
-        elif arg == "--yt-dlp-path" and idx + 1 < len(sys.argv):
-            custom_ytdlp = sys.argv[idx + 1]
+    args = parser.parse_args()
 
-    spotify_id = extract_spotify_id(album_url)
-    ytdlp_bin = resolve_ytdlp_path(custom_ytdlp)
+    try:
+        spotify_id = extract_spotify_id(args.url)
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
 
-    cached_data = None if refresh_flag else get_cached_data(spotify_id)
+    ytdlp_bin = resolve_ytdlp_path(args.yt_dlp_path)
 
-    if cached_data:
-        print(f"⚡ Loaded cached results for album '{cached_data['album']}' by '{cached_data['artist']}' (.cache/{spotify_id}.json)")
-        _print_summary(cached_data["downloadable_tracks"], cached_data["issue_tracks"])
+    album_results = process_album(spotify_id, refresh=args.refresh, recheck_unresolved=True)
 
-        if download_flag and cached_data["downloadable_tracks"]:
-            download_album_with_ytdlp(
-                cached_data["album"],
-                cached_data["artist"],
-                cached_data["downloadable_tracks"],
-                ytdlp_bin,
-            )
-    else:
-        album_data = fetch_isrchunt_tracks(spotify_id)
-        if album_data.get("tracks"):
-            process_isrcs_against_musicbrainz(
-                album_data,
-                spotify_id,
-                download_now=download_flag,
-                ytdlp_binary=ytdlp_bin,
-            )
-        else:
-            print("No tracks found on ISRCHunt.")
+    _print_summary(album_results["downloadable_tracks"], album_results["issue_tracks"])
+
+    if args.export_issues and album_results["issue_tracks"]:
+        export_issues_file(
+            album_results["album"],
+            album_results["artist"],
+            spotify_id,
+            album_results["issue_tracks"],
+        )
+
+    if args.download and album_results["downloadable_tracks"]:
+        download_album_with_ytdlp(
+            album_results["album"],
+            album_results["artist"],
+            album_results["downloadable_tracks"],
+            ytdlp_bin,
+            force_download=args.force,
+        )
+
+
+if __name__ == "__main__":
+    main()
