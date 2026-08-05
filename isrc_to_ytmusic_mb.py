@@ -135,10 +135,10 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
                 # Optional: verify relation type is "streaming" or "free streaming"
                 rel_type = rel.get("type", "")
 
-        if "music.youtube.com" in target_url:
-            all_ytm_urls.append(target_url)
-        elif "youtube.com" in target_url or "youtu.be" in target_url:
-            all_yt_urls.append(target_url)
+                if "music.youtube.com" in target_url:
+                    all_ytm_urls.append(target_url)
+                elif "youtube.com" in target_url or "youtu.be" in target_url:
+                    all_yt_urls.append(target_url)
 
             # Deduplicate strictly
             unique_ytm_urls = list(set(all_ytm_urls))
