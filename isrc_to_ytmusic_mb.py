@@ -128,12 +128,12 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
                 recording_data = rec_detail.get("recording", {})
                 relations = recording_data.get("url-relation-list", [])
 
-    for rel in relations:
-        # Check if relation is directly attached to recording (e.g. streaming / video relation)
-        target_url = rel.get("target", "")
+            for rel in relations:
+                # Check if relation is directly attached to recording (e.g. streaming / video relation)
+                target_url = rel.get("target", "")
 
-        # Optional: verify relation type is "streaming" or "free streaming"
-        rel_type = rel.get("type", "")
+                # Optional: verify relation type is "streaming" or "free streaming"
+                rel_type = rel.get("type", "")
 
         if "music.youtube.com" in target_url:
             all_ytm_urls.append(target_url)
