@@ -77,14 +77,13 @@ def fetch_isrchunt_tracks(spotify_album_url_or_id: str) -> dict:
 
 
 def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = False):
-    """Queries MB by ISRC, filters strictly for music.youtube.com links, and categorizes results cleanly."""
+    """Queries MB by ISRC, filters strictly for music.youtube.com links, and categorizes results."""
     tracks = album_data["tracks"]
     album_name = album_data["album"]
     artist_name = album_data["artist"]
 
     list_1_downloadable = []
-    list_2_ambiguous_recordings = []
-    list_3_yt_link_issues = []
+    list_2_yt_link_issues = []
 
     print(f"\nProcessing {len(tracks)} ISRCs for '{album_name}' by '{artist_name}'...\n" + "=" * 70)
 
@@ -103,12 +102,14 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
             recording_list = isrc_res.get("isrc", {}).get("recording-list", [])
 
             if not recording_list:
-                list_3_yt_link_issues.append(
+                mb_isrc_url = f"https://musicbrainz.org/isrc/{isrc}"
+                list_2_yt_link_issues.append(
                     {
                         "track_number": num,
                         "title": title,
                         "isrc": isrc,
                         "reason": "ISRC not found on MusicBrainz",
+                        "mb_url": mb_isrc_url,
                         "yt_urls": [],
                     }
                 )
@@ -117,34 +118,28 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
 
             all_ytm_urls = []
             all_yt_urls = []
-            rec_ids = [r["id"] for r in recording_list]
+            primary_mbid = recording_list[0]["id"]
+            mb_recording_url = f"https://musicbrainz.org/recording/{primary_mbid}"
 
-            # Collect URL relations strictly attached DIRECTLY to this recording
+            # Collect URL relations from all matching recordings
             for rec in recording_list:
                 time.sleep(1.0)  # MB Rate Limit
                 rec_detail = musicbrainzngs.get_recording_by_id(
                     rec["id"], includes=["url-rels"]
                 )
-                recording_data = rec_detail.get("recording", {})
-                relations = recording_data.get("url-relation-list", [])
+                relations = rec_detail.get("recording", {}).get("url-relation-list", [])
 
-            for rel in relations:
-                # Check if relation is directly attached to recording (e.g. streaming / video relation)
-                target_url = rel.get("target", "")
+                for rel in relations:
+                    target_url = rel.get("target", "")
+                    if "music.youtube.com" in target_url:
+                        all_ytm_urls.append(target_url)
+                    elif "youtube.com" in target_url or "youtu.be" in target_url:
+                        all_yt_urls.append(target_url)
 
-                # Optional: verify relation type is "streaming" or "free streaming"
-                rel_type = rel.get("type", "")
-
-                if "music.youtube.com" in target_url:
-                    all_ytm_urls.append(target_url)
-                elif "youtube.com" in target_url or "youtu.be" in target_url:
-                    all_yt_urls.append(target_url)
-
-            # Deduplicate strictly
             unique_ytm_urls = list(set(all_ytm_urls))
             unique_yt_urls = list(set(all_yt_urls))
 
-            # --- CATEGORY 1: Exactly 1 YouTube Music Link Found ---
+            # --- SECTION 1: Exactly 1 YouTube Music Link Found ---
             if len(unique_ytm_urls) == 1:
                 list_1_downloadable.append(
                     {
@@ -153,13 +148,13 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
                         "artist": artist_name,
                         "album": album_name,
                         "isrc": isrc,
-                        "mbid": rec_ids[0],
+                        "mbid": primary_mbid,
                         "yt_url": unique_ytm_urls[0],
                     }
                 )
                 print(f"   ✅ Single YTM Link Found: {unique_ytm_urls[0]}")
 
-            # --- CATEGORY 3: Link Issues (0 or Multiple YTM Links) ---
+            # --- SECTION 2: Link Issues (0 or Multiple YTM Links) ---
             else:
                 if len(unique_ytm_urls) > 1:
                     reason = f"Multiple competing YTM links found ({len(unique_ytm_urls)})"
@@ -171,43 +166,34 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
                     reason = "No YouTube links linked on MB"
                     target_links = []
 
-                list_3_yt_link_issues.append(
+                list_2_yt_link_issues.append(
                     {
                         "track_number": num,
                         "title": title,
                         "isrc": isrc,
-                        "mbid": rec_ids[0],
+                        "mbid": primary_mbid,
+                        "mb_url": mb_recording_url,
                         "reason": reason,
                         "yt_urls": target_links,
                     }
                 )
                 print(f"   ⚠️ {reason}")
 
-                # --- CATEGORY 2: Ambiguous Recordings (Only if NOT in List 1 AND has issues) ---
-                if len(recording_list) > 1:
-                    list_2_ambiguous_recordings.append(
-                        {
-                            "track_number": num,
-                            "title": title,
-                            "isrc": isrc,
-                            "recording_count": len(recording_list),
-                            "mbids": rec_ids,
-                        }
-                    )
-
         except musicbrainzngs.ResponseError as e:
-            list_3_yt_link_issues.append(
+            mb_isrc_url = f"https://musicbrainz.org/isrc/{isrc}"
+            list_2_yt_link_issues.append(
                 {
                     "track_number": num,
                     "title": title,
                     "isrc": isrc,
                     "reason": "ISRC error on MB",
+                    "mb_url": mb_isrc_url,
                     "yt_urls": [],
                 }
             )
             print(f"   ❌ MB Response Error: {e}")
 
-    _print_summary(list_1_downloadable, list_2_ambiguous_recordings, list_3_yt_link_issues)
+    _print_summary(list_1_downloadable, list_2_yt_link_issues)
 
     if download_now and list_1_downloadable:
         download_album_with_ytdlp(album_name, artist_name, list_1_downloadable)
@@ -254,7 +240,7 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict]):
             print(f"   ❌ Download failed for {title}: {e}")
 
 
-def _print_summary(list_1, list_2, list_3):
+def _print_summary(list_1, list_2):
     print("\n" + "=" * 70)
     print(" SUMMARY REPORT ")
     print("=" * 70)
@@ -265,21 +251,14 @@ def _print_summary(list_1, list_2, list_3):
         print(f"  [{item['track_number']:02d}] {item['title']} (ISRC: {item['isrc']})")
         print(f"       URL:  {item['yt_url']}")
 
-    print(f"\n2️⃣ UNRESOLVED AMBIGUOUS RECORDINGS ({len(list_2)} tracks):")
+    print(f"\n2️⃣ YT LINK ISSUES ({len(list_2)} tracks):")
     print("-" * 50)
-    if not list_2:
-        print("  (None — all multi-recording ISRCs resolved cleanly to single YTM links!)")
     for item in list_2:
         print(f"  [{item['track_number']:02d}] {item['title']} (ISRC: {item['isrc']})")
-        print(f"       Matches ({item['recording_count']}): {', '.join(item['mbids'])}")
-
-    print(f"\n3️⃣ YT LINK ISSUES ({len(list_3)} tracks):")
-    print("-" * 50)
-    for item in list_3:
-        print(f"  [{item['track_number']:02d}] {item['title']} (ISRC: {item['isrc']})")
-        print(f"       Issue: {item['reason']}")
+        print(f"       MB URL: {item['mb_url']}")
+        print(f"       Issue:  {item['reason']}")
         if item["yt_urls"]:
-            print(f"       URLs:  {', '.join(item['yt_urls'])}")
+            print(f"       URLs:   {', '.join(item['yt_urls'])}")
 
 
 if __name__ == "__main__":
