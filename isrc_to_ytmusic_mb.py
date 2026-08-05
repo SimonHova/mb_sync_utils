@@ -119,20 +119,26 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
             all_yt_urls = []
             rec_ids = [r["id"] for r in recording_list]
 
-            # Collect URL relations from all matching recordings
+            # Collect URL relations strictly attached DIRECTLY to this recording
             for rec in recording_list:
                 time.sleep(1.0)  # MB Rate Limit
                 rec_detail = musicbrainzngs.get_recording_by_id(
                     rec["id"], includes=["url-rels"]
                 )
-                relations = rec_detail.get("recording", {}).get("url-relation-list", [])
+                recording_data = rec_detail.get("recording", {})
+    relations = recording_data.get("url-relation-list", [])
 
-                for rel in relations:
-                    target_url = rel.get("target", "")
-                    if "music.youtube.com" in target_url:
-                        all_ytm_urls.append(target_url)
-                    elif "youtube.com" in target_url or "youtu.be" in target_url:
-                        all_yt_urls.append(target_url)
+    for rel in relations:
+        # Check if relation is directly attached to recording (e.g. streaming / video relation)
+        target_url = rel.get("target", "")
+
+        # Optional: verify relation type is "streaming" or "free streaming"
+        rel_type = rel.get("type", "")
+
+        if "music.youtube.com" in target_url:
+            all_ytm_urls.append(target_url)
+        elif "youtube.com" in target_url or "youtu.be" in target_url:
+            all_yt_urls.append(target_url)
 
             # Deduplicate strictly
             unique_ytm_urls = list(set(all_ytm_urls))
