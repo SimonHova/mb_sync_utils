@@ -204,8 +204,15 @@ def fetch_isrchunt_tracks(spotify_id: str) -> dict:
     return {"album": album_title, "artist": artist_name, "tracks": tracks}
 
 
-def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str, album_name: str) -> tuple[dict | None, dict | None]:
-    """Queries MusicBrainz for a single track ISRC, checking primary recordings individually with strict URL normalization."""
+def check_isrc_on_musicbrainz(
+    isrc: str,
+    title: str,
+    num: int,
+    artist_name: str,
+    album_name: str,
+    spotify_duration_ms: int = 0,
+) -> tuple[dict | None, dict | None]:
+    """Queries MusicBrainz for an ISRC, applying duration tolerance and strict YTM URL filtering."""
     print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
     try:
         time.sleep(1.0)  # Rate Limit
@@ -225,38 +232,81 @@ def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str,
         primary_mbid = recording_list[0]["id"]
         primary_mb_url = f"https://musicbrainz.org/recording/{primary_mbid}"
 
-        # Evaluate each matched recording individually (primary first)
+        # Duration Tolerance: 5 seconds (5000 ms)
+        TOLERANCE_MS = 5000
+
+        valid_recordings = []
         for rec in recording_list:
+            mb_length = int(rec.get("length", 0)) if rec.get("length") else 0
+
+            # Filter out duration mismatches if Spotify duration is known
+            if spotify_duration_ms > 0 and mb_length > 0:
+                diff = abs(spotify_duration_ms - mb_length)
+                if diff > TOLERANCE_MS:
+                    print(
+                        f"   ⚠️ Skipping MBID {rec['id'][:8]}: Duration mismatch "
+                        f"(Spotify: {spotify_duration_ms//1000}s vs MB: {mb_length//1000}s)"
+                    )
+                    continue
+
+            valid_recordings.append(rec)
+
+        if not valid_recordings:
+            print("   ❌ All matched MB recordings failed duration verification!")
+            return None, {
+                "track_number": num,
+                "title": title,
+                "isrc": isrc,
+                "mbid": primary_mbid,
+                "mb_url": primary_mb_url,
+                "reason": f"Duration mismatch against Spotify track ({spotify_duration_ms//1000}s)",
+                "yt_urls": [],
+            }
+
+        # Evaluate valid recordings individually
+        for rec in valid_recordings:
             time.sleep(1.0)  # Rate Limit
             rec_id = rec["id"]
-            rec_detail = musicbrainzngs.get_recording_by_id(rec_id, includes=["url-rels"])
+            rec_detail = musicbrainzngs.get_recording_by_id(
+                rec_id, includes=["url-rels"]
+            )
             recording_data = rec_detail.get("recording", {})
             relations = recording_data.get("url-relation-list", [])
 
-            ytm_urls = []
+            ytm_strict_urls = []
+            yt_std_urls = []
 
             for rel in relations:
                 target_url = rel.get("target", "")
 
-                # Strict check: ensure this relation is attached directly to this recording
-                # (ignore work-level or release-level inherited relations)
-                target_type = rel.get("target-type", "")
-                if target_type and target_type != "url":
-                    continue
+                # 1. Check for explicit YouTube Music domains
+                if "music.youtube.com" in target_url:
+                    yt_match = re.search(
+                        r"(?:v=|\/)([\w-]{11})(?:[?&]|$)", target_url
+                    )
+                    if yt_match:
+                        ytm_strict_urls.append(
+                            f"https://music.youtube.com/watch?v={yt_match.group(1)}"
+                        )
 
-                # Match any YouTube or YouTube Music URL containing a video ID
-                yt_match = re.search(r"(?:v=|\/)([\w-]{11})(?:[?&]|$)", target_url)
-                if ("youtube.com" in target_url or "youtu.be" in target_url) and yt_match:
-                    video_id = yt_match.group(1)
-                    clean_ytm_url = f"https://music.youtube.com/watch?v={video_id}"
-                    ytm_urls.append(clean_ytm_url)
+                # 2. Collect standard YouTube URLs as fallbacks
+                elif "youtube.com" in target_url or "youtu.be" in target_url:
+                    yt_match = re.search(
+                        r"(?:v=|\/)([\w-]{11})(?:[?&]|$)", target_url
+                    )
+                    if yt_match:
+                        yt_std_urls.append(
+                            f"https://www.youtube.com/watch?v={yt_match.group(1)}"
+                        )
 
-            # Deduplicate by video ID / URL
-            unique_ytm = list(dict.fromkeys(ytm_urls))
+            unique_ytm = list(dict.fromkeys(ytm_strict_urls))
+            unique_std = list(dict.fromkeys(yt_std_urls))
 
-            # Case A: Found exactly 1 valid YouTube / YTM link on this recording -> Match!
+            # Case A: Found EXACTLY 1 strict music.youtube.com link on this recording!
             if len(unique_ytm) == 1:
-                print(f"   ✅ Single YTM Link Found on MBID {rec_id[:8]}: {unique_ytm[0]}")
+                print(
+                    f"   ✅ Single YTM Link Found on MBID {rec_id[:8]}: {unique_ytm[0]}"
+                )
                 return {
                     "track_number": num,
                     "title": title,
@@ -267,9 +317,11 @@ def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str,
                     "yt_url": unique_ytm[0],
                 }, None
 
-            # Case B: Multiple distinct video IDs attached directly to THIS recording
+            # Case B: Multiple strict music.youtube.com links on this recording
             elif len(unique_ytm) > 1:
-                print(f"   ⚠️ Multiple YTM links on single recording MBID {rec_id[:8]}")
+                print(
+                    f"   ⚠️ Multiple YTM links on single recording MBID {rec_id[:8]}"
+                )
                 return None, {
                     "track_number": num,
                     "title": title,
@@ -280,15 +332,15 @@ def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str,
                     "yt_urls": unique_ytm,
                 }
 
-        # Case C: No YouTube links found across any recording
-        print("   ⚠️ No YouTube links linked on MB")
+        # Case C: No strict YTM links found across any recording
+        print("   ⚠️ No YouTube Music links linked on MB")
         return None, {
             "track_number": num,
             "title": title,
             "isrc": isrc,
             "mbid": primary_mbid,
             "mb_url": primary_mb_url,
-            "reason": "No YouTube links linked on MB",
+            "reason": "No YouTube Music links linked on MB",
             "yt_urls": [],
         }
 
