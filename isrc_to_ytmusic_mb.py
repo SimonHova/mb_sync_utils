@@ -205,7 +205,7 @@ def fetch_isrchunt_tracks(spotify_id: str) -> dict:
 
 
 def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str, album_name: str) -> tuple[dict | None, dict | None]:
-    """Queries MusicBrainz for a single track ISRC, checking primary recordings individually."""
+    """Queries MusicBrainz for a single track ISRC, checking primary recordings individually with strict URL normalization."""
     print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
     try:
         time.sleep(1.0)  # Rate Limit
@@ -230,22 +230,31 @@ def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str,
             time.sleep(1.0)  # Rate Limit
             rec_id = rec["id"]
             rec_detail = musicbrainzngs.get_recording_by_id(rec_id, includes=["url-rels"])
-            relations = rec_detail.get("recording", {}).get("url-relation-list", [])
+            recording_data = rec_detail.get("recording", {})
+            relations = recording_data.get("url-relation-list", [])
 
             ytm_urls = []
-            yt_urls = []
 
             for rel in relations:
                 target_url = rel.get("target", "")
-                if "music.youtube.com" in target_url:
-                    ytm_urls.append(target_url)
-                elif "youtube.com" in target_url or "youtu.be" in target_url:
-                    yt_urls.append(target_url)
 
-            unique_ytm = list(set(ytm_urls))
-            unique_yt = list(set(yt_urls))
+                # Strict check: ensure this relation is attached directly to this recording
+                # (ignore work-level or release-level inherited relations)
+                target_type = rel.get("target-type", "")
+                if target_type and target_type != "url":
+                    continue
 
-            # Case A: Found exactly 1 YTM link on this recording -> Match found!
+                # Match any YouTube or YouTube Music URL containing a video ID
+                yt_match = re.search(r"(?:v=|\/)([\w-]{11})(?:[?&]|$)", target_url)
+                if ("youtube.com" in target_url or "youtu.be" in target_url) and yt_match:
+                    video_id = yt_match.group(1)
+                    clean_ytm_url = f"https://music.youtube.com/watch?v={video_id}"
+                    ytm_urls.append(clean_ytm_url)
+
+            # Deduplicate by video ID / URL
+            unique_ytm = list(dict.fromkeys(ytm_urls))
+
+            # Case A: Found exactly 1 valid YouTube / YTM link on this recording -> Match!
             if len(unique_ytm) == 1:
                 print(f"   ✅ Single YTM Link Found on MBID {rec_id[:8]}: {unique_ytm[0]}")
                 return {
@@ -258,7 +267,7 @@ def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str,
                     "yt_url": unique_ytm[0],
                 }, None
 
-            # Case B: Multiple YTM links on THIS specific recording
+            # Case B: Multiple distinct video IDs attached directly to THIS recording
             elif len(unique_ytm) > 1:
                 print(f"   ⚠️ Multiple YTM links on single recording MBID {rec_id[:8]}")
                 return None, {
@@ -271,29 +280,16 @@ def check_isrc_on_musicbrainz(isrc: str, title: str, num: int, artist_name: str,
                     "yt_urls": unique_ytm,
                 }
 
-        # Case C: No YTM links found across any recording
-        # Check if standard YouTube links exist on the primary recording for context
-        rec_detail = musicbrainzngs.get_recording_by_id(primary_mbid, includes=["url-rels"])
-        relations = rec_detail.get("recording", {}).get("url-relation-list", [])
-        std_yt_urls = list(set([
-            r.get("target", "") for r in relations 
-            if "youtube.com" in r.get("target", "") or "youtu.be" in r.get("target", "")
-        ]))
-
-        if std_yt_urls:
-            reason = f"No YTM links found (Only standard YouTube links exist: {len(std_yt_urls)})"
-        else:
-            reason = "No YouTube links linked on MB"
-
-        print(f"   ⚠️ {reason}")
+        # Case C: No YouTube links found across any recording
+        print("   ⚠️ No YouTube links linked on MB")
         return None, {
             "track_number": num,
             "title": title,
             "isrc": isrc,
             "mbid": primary_mbid,
             "mb_url": primary_mb_url,
-            "reason": reason,
-            "yt_urls": std_yt_urls,
+            "reason": "No YouTube links linked on MB",
+            "yt_urls": [],
         }
 
     except musicbrainzngs.ResponseError as e:
