@@ -4,3 +4,4 @@ fix_artists/ampache-cookies.txt
 .vscode/
 __pycache__
 .python-version
+.env

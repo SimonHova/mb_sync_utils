@@ -1,6 +1,8 @@
 import html
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -15,14 +17,76 @@ musicbrainzngs.set_useragent(
     "https://github.com/yourusername/mb_sync_utils",
 )
 
+CACHE_DIR = "./.cache"
 
-def fetch_isrchunt_tracks(spotify_album_url_or_id: str) -> dict:
-    """Scrapes Spotify album metadata, tracks, and ISRCs from ISRCHunt."""
-    match = re.search(r"([a-zA-Z0-9]{22})", spotify_album_url_or_id)
+
+def load_env_file():
+    """Simple parser for .env file if present in the current working directory."""
+    env_path = os.path.join(os.getcwd(), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ.setdefault(key.strip(), val.strip().strip('"\''))
+
+
+def resolve_ytdlp_path(custom_path: str = None) -> str:
+    """Finds the yt-dlp executable path via argument, env var, or system search."""
+    if custom_path and os.path.exists(custom_path):
+        return custom_path
+
+    env_path = os.getenv("YTDLP_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    home = os.path.expanduser("~")
+    candidates = [
+        "yt-dlp",
+        f"{home}/.local/bin/yt-dlp",
+        f"{home}/.local/share/uv/tools/spotdl/bin/yt-dlp",
+        "/usr/local/bin/yt-dlp",
+        "/usr/bin/yt-dlp",
+    ]
+
+    for candidate in candidates:
+        if candidate == "yt-dlp":
+            if shutil.which("yt-dlp"):
+                return "yt-dlp"
+        elif os.path.exists(candidate):
+            return candidate
+
+    return "yt-dlp"  # Fallback to system execution if not found directly
+
+
+def extract_spotify_id(url_or_id: str) -> str:
+    match = re.search(r"([a-zA-Z0-9]{22})", url_or_id)
     if not match:
         raise ValueError("Invalid Spotify Album URL or ID")
+    return match.group(1)
 
-    spotify_id = match.group(1)
+
+def get_cached_data(spotify_id: str) -> dict | None:
+    cache_file = os.path.join(CACHE_DIR, f"{spotify_id}.json")
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+    return None
+
+
+def save_cache_data(spotify_id: str, data: dict):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_file = os.path.join(CACHE_DIR, f"{spotify_id}.json")
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def fetch_isrchunt_tracks(spotify_id: str) -> dict:
+    """Scrapes Spotify album metadata, tracks, and ISRCs from ISRCHunt."""
     target_url = f"https://isrchunt.com/spotify/importisrc?releaseId={spotify_id}"
 
     headers = {
@@ -39,16 +103,10 @@ def fetch_isrchunt_tracks(spotify_album_url_or_id: str) -> dict:
     soup = BeautifulSoup(res.text, "html.parser")
 
     album_title_elem = soup.find("h1", class_="card-title")
-    album_title = (
-        album_title_elem.text.strip() if album_title_elem else "Unknown Album"
-    )
+    album_title = album_title_elem.text.strip() if album_title_elem else "Unknown Album"
 
     artist_p = soup.find(lambda tag: tag.name == "p" and "Artist:" in tag.text)
-    artist_name = (
-        artist_p.text.replace("Artist:", "").strip()
-        if artist_p
-        else "Unknown Artist"
-    )
+    artist_name = artist_p.text.replace("Artist:", "").strip() if artist_p else "Unknown Artist"
 
     table = soup.find("table", class_="table")
     if not table:
@@ -76,8 +134,8 @@ def fetch_isrchunt_tracks(spotify_album_url_or_id: str) -> dict:
     return {"album": album_title, "artist": artist_name, "tracks": tracks}
 
 
-def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = False):
-    """Queries MB by ISRC, filters strictly for music.youtube.com links, and categorizes results."""
+def process_isrcs_against_musicbrainz(album_data: dict, spotify_id: str, download_now: bool = False, ytdlp_binary: str = "yt-dlp"):
+    """Queries MB by ISRC, filters strictly for music.youtube.com links, and saves output to cache."""
     tracks = album_data["tracks"]
     album_name = album_data["album"]
     artist_name = album_data["artist"]
@@ -97,7 +155,6 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
         try:
             time.sleep(1.0)  # MB Rate Limit
 
-            # Query MB by ISRC
             isrc_res = musicbrainzngs.get_recordings_by_isrc(isrc)
             recording_list = isrc_res.get("isrc", {}).get("recording-list", [])
 
@@ -121,12 +178,9 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
             primary_mbid = recording_list[0]["id"]
             mb_recording_url = f"https://musicbrainz.org/recording/{primary_mbid}"
 
-            # Collect URL relations from all matching recordings
             for rec in recording_list:
                 time.sleep(1.0)  # MB Rate Limit
-                rec_detail = musicbrainzngs.get_recording_by_id(
-                    rec["id"], includes=["url-rels"]
-                )
+                rec_detail = musicbrainzngs.get_recording_by_id(rec["id"], includes=["url-rels"])
                 relations = rec_detail.get("recording", {}).get("url-relation-list", [])
 
                 for rel in relations:
@@ -139,7 +193,6 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
             unique_ytm_urls = list(set(all_ytm_urls))
             unique_yt_urls = list(set(all_yt_urls))
 
-            # --- SECTION 1: Exactly 1 YouTube Music Link Found ---
             if len(unique_ytm_urls) == 1:
                 list_1_downloadable.append(
                     {
@@ -154,7 +207,6 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
                 )
                 print(f"   ✅ Single YTM Link Found: {unique_ytm_urls[0]}")
 
-            # --- SECTION 2: Link Issues (0 or Multiple YTM Links) ---
             else:
                 if len(unique_ytm_urls) > 1:
                     reason = f"Multiple competing YTM links found ({len(unique_ytm_urls)})"
@@ -193,16 +245,26 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
             )
             print(f"   ❌ MB Response Error: {e}")
 
+    # Cache processing output
+    processed_output = {
+        "spotify_id": spotify_id,
+        "album": album_name,
+        "artist": artist_name,
+        "downloadable_tracks": list_1_downloadable,
+        "issue_tracks": list_2_yt_link_issues,
+    }
+    save_cache_data(spotify_id, processed_output)
+
     _print_summary(list_1_downloadable, list_2_yt_link_issues)
 
     if download_now and list_1_downloadable:
-        download_album_with_ytdlp(album_name, artist_name, list_1_downloadable)
+        download_album_with_ytdlp(album_name, artist_name, list_1_downloadable, ytdlp_binary)
 
 
-def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict]):
+def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp_binary: str):
     """Downloads tracks into 'Artist - Album/TrackNum - Title.ext' using yt-dlp."""
     print("\n" + "=" * 70)
-    print(" STARTING YT-DLP ALBUM DOWNLOAD ")
+    print(f" STARTING YT-DLP ALBUM DOWNLOAD (Using: {ytdlp_binary}) ")
     print("=" * 70)
 
     safe_artist = re.sub(r'[\\/*?:"<>|]', "", artist)
@@ -219,7 +281,7 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict]):
         output_template = f"{output_folder}/{num:02d} - %(title)s.%(ext)s"
 
         cmd = [
-            "yt-dlp",
+            ytdlp_binary,
             "-x",
             "--audio-format", "mp3",
             "--audio-quality", "0",
@@ -262,16 +324,49 @@ def _print_summary(list_1, list_2):
 
 
 if __name__ == "__main__":
+    load_env_file()
+
     album_url = "https://open.spotify.com/album/6wEh2L2nX5qVc7fDgCMGNn"
     download_flag = False
+    refresh_flag = False
+    custom_ytdlp = None
 
-    if len(sys.argv) > 1:
-        album_url = sys.argv[1]
-    if "--download" in sys.argv:
-        download_flag = True
+    # CLI Arguments Parsing
+    for idx, arg in enumerate(sys.argv):
+        if arg.startswith("http") or (len(arg) == 22 and arg.isalnum() and idx > 0):
+            album_url = arg
+        elif arg == "--download":
+            download_flag = True
+        elif arg == "--refresh":
+            refresh_flag = True
+        elif arg == "--yt-dlp-path" and idx + 1 < len(sys.argv):
+            custom_ytdlp = sys.argv[idx + 1]
 
-    album_data = fetch_isrchunt_tracks(album_url)
-    if album_data.get("tracks"):
-        process_isrcs_against_musicbrainz(album_data, download_now=download_flag)
+    spotify_id = extract_spotify_id(album_url)
+    ytdlp_bin = resolve_ytdlp_path(custom_ytdlp)
+
+    # Check Cache
+    cached_data = None if refresh_flag else get_cached_data(spotify_id)
+
+    if cached_data:
+        print(f"⚡ Loaded cached results for album '{cached_data['album']}' by '{cached_data['artist']}' (.cache/{spotify_id}.json)")
+        _print_summary(cached_data["downloadable_tracks"], cached_data["issue_tracks"])
+
+        if download_flag and cached_data["downloadable_tracks"]:
+            download_album_with_ytdlp(
+                cached_data["album"],
+                cached_data["artist"],
+                cached_data["downloadable_tracks"],
+                ytdlp_bin,
+            )
     else:
-        print("No tracks found on ISRCHunt.")
+        album_data = fetch_isrchunt_tracks(spotify_id)
+        if album_data.get("tracks"):
+            process_isrcs_against_musicbrainz(
+                album_data,
+                spotify_id,
+                download_now=download_flag,
+                ytdlp_binary=ytdlp_bin,
+            )
+        else:
+            print("No tracks found on ISRCHunt.")
