@@ -6,3 +6,6 @@ __pycache__
 .python-version
 .env
 .cache/
+
+# these are from the spotify downloader
+edit_list*.txt
