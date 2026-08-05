@@ -5,3 +5,4 @@ fix_artists/ampache-cookies.txt
 __pycache__
 .python-version
 .env
+.cache/
