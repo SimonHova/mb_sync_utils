@@ -506,7 +506,7 @@ def main():
     )
     parser.add_argument(
         "-e", "--export-issues",
-        default=True
+        default="True"
         action="store_true",
         help="Export unresolved tracks/issues to a formatted text file (edit_list_<id>.txt)",
     )
