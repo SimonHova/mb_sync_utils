@@ -126,7 +126,7 @@ def process_isrcs_against_musicbrainz(album_data: dict, download_now: bool = Fal
                     rec["id"], includes=["url-rels"]
                 )
                 recording_data = rec_detail.get("recording", {})
-    relations = recording_data.get("url-relation-list", [])
+                relations = recording_data.get("url-relation-list", [])
 
     for rel in relations:
         # Check if relation is directly attached to recording (e.g. streaming / video relation)
