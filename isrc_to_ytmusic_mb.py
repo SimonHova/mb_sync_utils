@@ -505,12 +505,6 @@ def main():
         help="Trigger yt-dlp to download all matched YouTube Music tracks",
     )
     parser.add_argument(
-        "-e", "--export-issues",
-        default="True"
-        action="store_true",
-        help="Export unresolved tracks/issues to a formatted text file (edit_list_<id>.txt)",
-    )
-    parser.add_argument(
         "-r", "--refresh",
         action="store_true",
         help="Bypass local cache completely and re-query ISRCHunt and MusicBrainz for all tracks",
@@ -525,6 +519,12 @@ def main():
         metavar="PATH",
         help="Explicit path to the yt-dlp binary (overrides PATH and .env)",
     )
+    parser.add_argument(
+        "-e", "--export-issues",
+        action="store_false",
+        help="Export unresolved tracks/issues to a formatted text file (edit_list_<id>.txt)",
+    )
+
 
     args = parser.parse_args()
 
