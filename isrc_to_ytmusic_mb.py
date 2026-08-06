@@ -386,7 +386,7 @@ def process_album(spotify_id: str, refresh: bool = False) -> dict:
             downloadable.append(reg_item)
             continue
 
-        # 2. Query MusicBrainz if not in global registry or --refresh passed
+        # 2. Query MusicBrainz
         dl_item, issue_item = check_isrc_on_musicbrainz(
             isrc, title, num, fallback_artist=album_artist_name, spotify_duration_sec=dur
         )
@@ -470,6 +470,11 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp
             print(f"   Location: {target_file_path}")
             continue
 
+        # Sanitize metadata fields for yt-dlp parsing (avoid colon-splitting issues)
+        tag_title = title.replace(":", " - ")
+        tag_artist = track_artist.replace(":", " - ")
+        tag_album = album.replace(":", " - ")
+
         cmd = [
             ytdlp_binary,
             "-x",
@@ -477,14 +482,16 @@ def download_album_with_ytdlp(album: str, artist: str, tracks: list[dict], ytdlp
             "--audio-quality", "0",
             "--embed-thumbnail",
             "--add-metadata",
-            "--parse-metadata", f"title:{title}",
-            "--parse-metadata", f"artist:{track_artist}",
-            "--parse-metadata", f"album:{album}",
+            "--parse-metadata", f"{tag_title}:%(title)s",
+            "--parse-metadata", f"{tag_artist}:%(artist)s",
+            "--parse-metadata", f"{tag_album}:%(album)s",
+            "--parse-metadata", f"{num:02d}:%(track_number)s",
             "-o", target_file_path,
             url,
         ]
 
         print(f"\n📥 Downloading [{num:02d}] {title} by {track_artist}")
+        print(f"   Target Album Tag: {tag_album}")
         print(f"   Destination: {target_file_path}")
 
         try:
