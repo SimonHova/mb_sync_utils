@@ -225,7 +225,7 @@ def check_isrc_on_musicbrainz(
     album_name: str,
     spotify_duration_sec: int = 0,
 ) -> tuple[dict | None, dict | None]:
-    """Queries MusicBrainz for an ISRC, strictly filtering for MB 'streaming' / 'free streaming' relationship types."""
+    """Queries MusicBrainz for an ISRC, strictly requiring native music.youtube.com URLs."""
     print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
     try:
         time.sleep(1.0)  # Rate Limit
@@ -257,7 +257,7 @@ def check_isrc_on_musicbrainz(
                 diff = abs(spotify_duration_sec - mb_sec)
                 if diff > TOLERANCE_SEC:
                     print(
-                        f"   ⚠️ Mismatch on MBID {rec['id'][:8]}: "
+                        f"   ⚠️ Duration mismatch on MBID {rec['id'][:8]}: "
                         f"Spotify ({spotify_duration_sec}s) vs MB ({mb_sec}s)"
                     )
                     continue
@@ -284,27 +284,25 @@ def check_isrc_on_musicbrainz(
             relations = rec_detail.get("recording", {}).get("url-relation-list", [])
 
             ytm_strict_urls = []
+            std_yt_urls = []
 
             for rel in relations:
-                target_url = rel.get("target", "")
-                rel_type = str(rel.get("type", "")).lower()
+                target_url = rel.get("target", "").strip()
 
-                # STRICT FILTER: Must be an official audio stream ("streaming" or "free streaming")
-                # OR explicitly a music.youtube.com domain
-                is_streaming_type = "stream" in rel_type
-                is_ytm_domain = "music.youtube.com" in target_url
+                # Rule 1: ONLY literal music.youtube.com URLs are valid YTM links
+                if "music.youtube.com" in target_url:
+                    ytm_strict_urls.append(target_url)
 
-                if is_streaming_type or is_ytm_domain:
-                    yt_match = re.search(r"(?:v=|\/)([\w-]{11})(?:[?&]|$)", target_url)
-                    if yt_match:
-                        video_id = yt_match.group(1)
-                        ytm_strict_urls.append(f"https://music.youtube.com/watch?v={video_id}")
+                # Rule 2: Keep track of standard youtube links for error reporting
+                elif "youtube.com" in target_url or "youtu.be" in target_url:
+                    std_yt_urls.append(target_url)
 
             unique_ytm = list(dict.fromkeys(ytm_strict_urls))
+            unique_std = list(dict.fromkeys(std_yt_urls))
 
-            # Case A: Exactly 1 valid YouTube Music streaming link on this recording
+            # Case A: Found EXACTLY 1 literal music.youtube.com link
             if len(unique_ytm) == 1:
-                print(f"   ✅ Single YTM Stream Found on MBID {rec_id[:8]}: {unique_ytm[0]}")
+                print(f"   ✅ Single YTM Link Found on MBID {rec_id[:8]}: {unique_ytm[0]}")
                 return {
                     "track_number": num,
                     "title": title,
@@ -315,29 +313,36 @@ def check_isrc_on_musicbrainz(
                     "yt_url": unique_ytm[0],
                 }, None
 
-            # Case B: Multiple strict streaming links on single recording
+            # Case B: Multiple literal music.youtube.com links
             elif len(unique_ytm) > 1:
-                print(f"   ⚠️ Multiple YTM streams on single recording MBID {rec_id[:8]}")
+                print(f"   ⚠️ Multiple YTM links on single recording MBID {rec_id[:8]}")
                 return None, {
                     "track_number": num,
                     "title": title,
                     "isrc": isrc,
                     "mbid": rec_id,
                     "mb_url": f"https://musicbrainz.org/recording/{rec_id}",
-                    "reason": f"Multiple competing YTM streams on recording ({len(unique_ytm)})",
+                    "reason": f"Multiple competing YTM links on recording ({len(unique_ytm)})",
                     "yt_urls": unique_ytm,
                 }
 
-        # Case C: No streaming links found
-        print("   ⚠️ No YouTube Music streaming links linked on MB")
+        # Case C: No literal YTM link found across any recording
+        if unique_std:
+            reason = f"No YTM links found (Only standard YouTube links exist: {len(unique_std)})"
+            urls_to_report = unique_std
+        else:
+            reason = "No YouTube links linked on MB"
+            urls_to_report = []
+
+        print(f"   ⚠️ {reason}")
         return None, {
             "track_number": num,
             "title": title,
             "isrc": isrc,
             "mbid": primary_mbid,
             "mb_url": primary_mb_url,
-            "reason": "No YouTube Music streaming links linked on MB",
-            "yt_urls": [],
+            "reason": reason,
+            "yt_urls": urls_to_report,
         }
 
     except musicbrainzngs.ResponseError as e:
