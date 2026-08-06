@@ -178,7 +178,9 @@ def fetch_isrchunt_tracks(spotify_id: str) -> dict:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0.0.0 Safari/537.36"
-        )
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
     }
 
     res = requests.get(target_url, headers=headers)
@@ -186,18 +188,21 @@ def fetch_isrchunt_tracks(spotify_id: str) -> dict:
 
     soup = BeautifulSoup(res.text, "html.parser")
 
-    album_title_elem = soup.find("h1", class_="card-title")
+    # Resilient Album Title Extraction
+    album_title_elem = soup.find("h1", class_="card-title") or soup.find("h1") or soup.find("h2")
     album_title = album_title_elem.text.strip() if album_title_elem else "Unknown Album"
 
-    artist_p = soup.find(lambda tag: tag.name == "p" and "Artist:" in tag.text)
-    album_artist_name = artist_p.text.replace("Artist:", "").strip() if artist_p else "Unknown Artist"
+    # Resilient Artist Extraction
+    artist_p = soup.find(lambda tag: tag.name in ["p", "div", "span"] and "Artist:" in tag.text)
+    album_artist_name = artist_p.text.replace("Artist:", "").strip() if artist_p else "Various Artists"
 
-    table = soup.find("table", class_="table")
+    # Find Table
+    table = soup.find("table")
     if not table:
         return {"album": album_title, "artist": album_artist_name, "tracks": []}
 
     tracks = []
-    rows = table.find_all("tr")[1:]
+    rows = table.find_all("tr")
 
     for row in rows:
         cols = row.find_all("td")
@@ -205,14 +210,17 @@ def fetch_isrchunt_tracks(spotify_id: str) -> dict:
             track_num = cols[0].text.strip()
             spotify_title = html.unescape(cols[1].text.strip())
             dur_raw = cols[2].text.strip()
-            spotify_isrc = cols[3].text.strip()
+            
+            # Find ISRC using regex pattern anywhere in column or text
+            isrc_match = re.search(r"[A-Z]{2}[A-Z0-9]{3}\d{7}", row.text)
+            spotify_isrc = isrc_match.group(0) if isrc_match else cols[3].text.strip()
 
             dur_sec = parse_duration_to_seconds(dur_raw)
 
             if spotify_isrc and len(spotify_isrc) == 12:
                 tracks.append(
                     {
-                        "track_number": int(track_num) if track_num.isdigit() else 0,
+                        "track_number": int(track_num) if track_num.isdigit() else len(tracks) + 1,
                         "title": spotify_title,
                         "duration_sec": dur_sec,
                         "isrc": spotify_isrc,
