@@ -233,7 +233,7 @@ def check_isrc_on_musicbrainz(
     print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
     try:
         time.sleep(1.0)  # Rate Limit
-        isrc_res = musicbrainzngs.get_recordings_by_isrc(isrc, includes=["artist-credits"])
+        isrc_res = musicbrainzngs.get_recordings_by_isrc(isrc)
         recording_list = isrc_res.get("isrc", {}).get("recording-list", [])
 
         if not recording_list:
