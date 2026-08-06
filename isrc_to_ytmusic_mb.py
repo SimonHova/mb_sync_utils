@@ -36,19 +36,24 @@ def load_env_file():
 
 
 def parse_duration_to_seconds(dur_str: str) -> int:
-    """Converts duration strings like '03:38' or '1:03:38' into total seconds."""
+    """Converts duration strings like '03:38', '1:03:38', or millisecond strings '234920' into total seconds."""
     if not dur_str:
         return 0
-    parts = dur_str.strip().split(":")
-    try:
-        if len(parts) == 2:  # MM:SS
-            return int(parts[0]) * 60 + int(parts[1])
-        elif len(parts) == 3:  # HH:MM:SS
-            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-        elif dur_str.isdigit():
-            return int(dur_str)
-    except ValueError:
-        return 0
+    dur_str = dur_str.strip()
+    if ":" in dur_str:
+        parts = dur_str.split(":")
+        try:
+            if len(parts) == 2:  # MM:SS
+                return int(parts[0]) * 60 + int(parts[1])
+            elif len(parts) == 3:  # HH:MM:SS
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        except ValueError:
+            return 0
+    elif dur_str.isdigit():
+        val = int(dur_str)
+        if val > 10000:  # Value is in milliseconds
+            return val // 1000
+        return val
     return 0
 
 
@@ -225,7 +230,7 @@ def check_isrc_on_musicbrainz(
     album_name: str,
     spotify_duration_sec: int = 0,
 ) -> tuple[dict | None, dict | None]:
-    """Queries MusicBrainz for an ISRC, excluding 'ended' relations and matching native music.youtube.com URLs."""
+    """Queries MusicBrainz for an ISRC, verifying track length, excluding 'ended' relations, and matching native music.youtube.com URLs."""
     print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
     try:
         time.sleep(1.0)  # Rate Limit
@@ -258,7 +263,7 @@ def check_isrc_on_musicbrainz(
                 if diff > TOLERANCE_SEC:
                     print(
                         f"   ⚠️ Duration mismatch on MBID {rec['id'][:8]}: "
-                        f"Spotify ({spotify_duration_sec}s) vs MB ({mb_sec}s)"
+                        f"Spotify ({spotify_duration_sec}s) vs MB ({mb_sec}s) - Skipping"
                     )
                     continue
 
@@ -331,7 +336,10 @@ def check_isrc_on_musicbrainz(
                     "yt_urls": unique_ytm,
                 }
 
-        # Case C: No active YTM link found across any recording
+        # Case C: No active YTM link found across any duration-matched recording
+        valid_mbid = valid_recordings[0]["id"]
+        valid_mb_url = f"https://musicbrainz.org/recording/{valid_mbid}"
+
         if unique_std:
             reason = f"No YTM links found (Only standard YouTube links exist: {len(unique_std)})"
             urls_to_report = unique_std
@@ -344,8 +352,8 @@ def check_isrc_on_musicbrainz(
             "track_number": num,
             "title": title,
             "isrc": isrc,
-            "mbid": primary_mbid,
-            "mb_url": primary_mb_url,
+            "mbid": valid_mbid,
+            "mb_url": valid_mb_url,
             "reason": reason,
             "yt_urls": urls_to_report,
         }
