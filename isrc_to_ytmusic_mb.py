@@ -225,7 +225,7 @@ def check_isrc_on_musicbrainz(
     album_name: str,
     spotify_duration_sec: int = 0,
 ) -> tuple[dict | None, dict | None]:
-    """Queries MusicBrainz for an ISRC, strictly requiring native music.youtube.com URLs."""
+    """Queries MusicBrainz for an ISRC, excluding 'ended' relations and matching native music.youtube.com URLs."""
     print(f"[{num:02d}] Querying MB for ISRC: {isrc} ({title})...")
     try:
         time.sleep(1.0)  # Rate Limit
@@ -287,20 +287,25 @@ def check_isrc_on_musicbrainz(
             std_yt_urls = []
 
             for rel in relations:
+                # SKIP ENDED RELATIONS
+                is_ended = rel.get("ended")
+                if is_ended == "true" or is_ended is True:
+                    continue
+
                 target_url = rel.get("target", "").strip()
 
-                # Rule 1: ONLY literal music.youtube.com URLs are valid YTM links
+                # ONLY literal music.youtube.com URLs are valid YTM links
                 if "music.youtube.com" in target_url:
                     ytm_strict_urls.append(target_url)
 
-                # Rule 2: Keep track of standard youtube links for error reporting
+                # Standard youtube links for error reporting
                 elif "youtube.com" in target_url or "youtu.be" in target_url:
                     std_yt_urls.append(target_url)
 
             unique_ytm = list(dict.fromkeys(ytm_strict_urls))
             unique_std = list(dict.fromkeys(std_yt_urls))
 
-            # Case A: Found EXACTLY 1 literal music.youtube.com link
+            # Case A: Found EXACTLY 1 active music.youtube.com link
             if len(unique_ytm) == 1:
                 print(f"   ✅ Single YTM Link Found on MBID {rec_id[:8]}: {unique_ytm[0]}")
                 return {
@@ -313,7 +318,7 @@ def check_isrc_on_musicbrainz(
                     "yt_url": unique_ytm[0],
                 }, None
 
-            # Case B: Multiple literal music.youtube.com links
+            # Case B: Multiple active music.youtube.com links
             elif len(unique_ytm) > 1:
                 print(f"   ⚠️ Multiple YTM links on single recording MBID {rec_id[:8]}")
                 return None, {
@@ -326,7 +331,7 @@ def check_isrc_on_musicbrainz(
                     "yt_urls": unique_ytm,
                 }
 
-        # Case C: No literal YTM link found across any recording
+        # Case C: No active YTM link found across any recording
         if unique_std:
             reason = f"No YTM links found (Only standard YouTube links exist: {len(unique_std)})"
             urls_to_report = unique_std
@@ -355,6 +360,7 @@ def check_isrc_on_musicbrainz(
             "mb_url": f"https://musicbrainz.org/isrc/{isrc}",
             "yt_urls": [],
         }
+
 
 def process_album(spotify_id: str, refresh: bool = False, recheck_unresolved: bool = True) -> dict:
     registry = load_isrc_registry()
