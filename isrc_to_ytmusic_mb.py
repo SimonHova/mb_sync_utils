@@ -13,9 +13,9 @@ from bs4 import BeautifulSoup
 
 # Initialize MusicBrainz (User-Agent required by MB policy)
 musicbrainzngs.set_useragent(
-    "MBSyncUtils",
+    "mb_dl",
     "1.0",
-    "https://github.com/yourusername/mb_sync_utils",
+    "https://github.com/SimonHova/mb_dl",
 )
 
 CACHE_DIR = "./.cache"
@@ -96,7 +96,8 @@ def get_spotdl_output_template() -> str:
         except Exception as e:
             print(f"⚠️ Could not read SpotDL config at {config_path}: {e}")
 
-    return "/media/Put/Downloads/yt-fetch/music/{album}/{artists} - {title}.{output-ext}"
+    # Updated relative path (safe for public distribution)
+    return "./music/{album}/{artists} - {title}.{output-ext}"
 
 
 def sanitize_filename(name: str) -> str:
