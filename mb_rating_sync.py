@@ -333,7 +333,7 @@ if args.sync_to == 'Ampache':
                 if len(amp_album) == 0: # no matches!
                     logger.debug('Skipping album MBID {}; no matches!'.format(__album))
                 else:
-                    if amp_album.tag == 'album':
+                    if amp_album[2].tag == 'album':
                         try:
                             amp_rating = amp_album[2].find('rating')
                         except:
@@ -345,12 +345,12 @@ if args.sync_to == 'Ampache':
                                 _album_rated = True
                                 # todo: check amp_rated for error
                             else:
-                                if rating == amp_rating.text:
+                                if str(rating) == amp_rating.text:
                                     logger.debug('Ratings match for album MBID {}'.format(__album))
                                     _album_rated = True
                                 else:
                                     logger.debug('Ampache had rating of {}. Setting rating {} for album MBID {}'.format(amp_rating.text,rating,__album))
-                                    amp_rated = ampacheConnection.rate(object_id=int(amp_album.attrib['id']), rating=int(rating), object_type='album')
+                                    amp_rated = ampacheConnection.rate(object_id=int(amp_album[2].attrib['id']), rating=int(rating), object_type='album')
                                     _album_rated = True
                                     # todo: check amp_rated for error
             if not _album_rated:
