@@ -24,6 +24,72 @@ def mbRating_to_KodiRating( _rating ):
 def ampRating_to_KodiRating( _rating ):
     return int(_rating) * 2
 
+def normalize_song_rating( _rating ):
+    """
+    Standardize rating on thumbs up (4 stars) / thumbs down (3 stars):
+    - 5 stars -> 4 stars
+    - 1 star  -> 3 stars
+    - Other ratings remain unchanged.
+    """
+    try:
+        r = int(_rating)
+        if r == 5:
+            return 4
+        elif r == 1:
+            return 3
+        return r
+    except (ValueError, TypeError):
+        return _rating
+
+def normalize_ampache_song_ratings(amp_conn):
+    """
+    Normalizes all song ratings across the entire Ampache database in one shot:
+    - Queries all rated songs (myrating >= 1).
+    - If rating is 5, updates Ampache rating to 4.
+    - If rating is 1, updates Ampache rating to 3.
+    """
+    logger.info("Starting rating normalization for Ampache songs...")
+    rating_rules = [['myrating', 4, 1]]
+    limit = 5000
+    offset = 0
+    all_songs = []
+
+    while True:
+        logger.debug(f"Fetching rated songs to normalize (offset {offset * limit}, limit {limit})...")
+        results = amp_conn.advanced_search(rating_rules, object_type='song', limit=limit, offset=offset * limit)
+        if results is False:
+            logger.warning(f"Batch fetch failed at offset {offset * limit}. Splitting to isolate records.")
+            results = get_ampache_songs_recursively(amp_conn, rating_rules, 'song', limit, offset * limit)
+
+        if not results:
+            break
+
+        all_songs.extend(results)
+        if len(results) < limit:
+            break
+        offset += 1
+
+    updated_count = 0
+    for song in all_songs:
+        if song.tag == 'song':
+            try:
+                song_id = int(song.attrib.get('id', song.find('id').text if song.find('id') is not None else 0))
+                rating_elem = song.find('rating')
+                if rating_elem is not None and rating_elem.text:
+                    orig_rating = int(rating_elem.text)
+                    normalized_rating = normalize_song_rating(orig_rating)
+                    if normalized_rating != orig_rating:
+                        logger.info(f"Normalizing song ID {song_id} ('{song.find('title').text if song.find('title') is not None else ''}') rating from {orig_rating} to {normalized_rating}")
+                        amp_conn.rate(object_type='song', object_id=song_id, rating=normalized_rating)
+                        # Update the in-memory XML element so subsequent logic reflects the normalized rating
+                        rating_elem.text = str(normalized_rating)
+                        updated_count += 1
+            except Exception as e:
+                logger.error(f"Error normalizing song rating: {e}")
+
+    logger.info(f"Normalization complete. {updated_count} song rating(s) normalized in Ampache.")
+    return updated_count
+
 def get_release_group_by_release_id( _id ):
     logger.debug("Asking MB for release ID " + _id)
     
