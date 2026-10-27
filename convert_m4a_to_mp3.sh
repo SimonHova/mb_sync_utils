@@ -2,7 +2,7 @@
 
 # --- Configuration ---
 # Set the starting directory for the recursive search
-SEARCH_DIR="/media/Put/Downloads/yt-fetch/music/"
+SEARCH_DIR="/media/Take/Music"
 # Target Bitrate for MP3 conversion
 TARGET_BITRATE="192k" 
 # FFmpeg logging options for clean output
